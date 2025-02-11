@@ -1,0 +1,225 @@
+import gurobipy as gp
+from gurobipy import GRB
+from itertools import product, repeat
+import numpy as np
+import qutip as qt
+import itertools
+
+time_limit = GRB.INFINITY
+tol = 1e-5
+return_dist = True
+print_model = True
+
+
+def cyclic_permute(vec, shift=1):
+    # For a left rotation by `shift` positions.
+    n = len(vec)
+    shift %= n  # Handle shifts greater than the length
+    return vec[shift:] + vec[:shift]
+    
+
+def generate_tuples(n, inp, out):
+    # Define ranges for first n entries and second n entries
+    first_range = range(inp)  # Values: 0 to inp-1
+    second_range = range(out) # Values: 0 to out-1
+
+    # Generate all n-length tuples for each half
+    first_half = list(itertools.product(first_range, repeat=n))
+    second_half = list(itertools.product(second_range, repeat=n))
+
+    # Combine every first_half tuple with every second_half tuple
+    all_tuples = [first + second for first, second in itertools.product(first_half, second_half)]
+    
+    return all_tuples
+
+# def cycle_variables(nc, cardout, cardinp):
+#     cardinalities = tuple(repeat(cardout, times=nc)) + tuple(repeat(cardinp, times=nc)) 
+#     print("card", cardinalities)
+#     cardinalities_sum_2_N = tuple(repeat(cardout, times=nc-2)) + tuple(repeat(cardinp, times=nc-2)) 
+    
+#     with (gp.Env(empty=True) as env):
+#         env.start()
+#         with gp.Model("qcp", env=env) as m:
+#             # Defining the probabilities
+#             Q_ = m.addMVar(cardinalities, lb=0, name="Q_")
+#             # Normalization
+#             for ind in itertools.product(range(cardinp), repeat=nc):
+#                 m.addConstr(Q_.sum(axis=(tuple(range(nc))))[ind]==1, "Normalization")
+
+
+#             # Independencies
+#             tuplenc = tuple(range(nc))
+#             tuple_0 = tuple(np.delete(tuplenc,0))
+#             for outs in itertools.product(range(cardout), repeat=nc-2):
+#                 for inps in itertools.product(range(cardinp), repeat=nc):
+#                     m.addConstr(Q_.sum(axis=(1, nc-1))[outs+inps]==Q_.sum(axis=(tuple_0))[(outs[0],)+inps]*Q_.sum(axis=(0,1,nc-1))[tuple(outs[1:(nc-1)])+inps], "Independences")
+
+#             # # No signaling
+#             # for p in range(nc):
+#             #     for ind in itertools.product(range(cardinp), repeat=nc-1):
+#             #         for i in range(cardinp-1):
+#             #             selected_inp = ind[0:p]+(i,)+ind[p:nc]
+#             #             selected_inp_2 = ind[0:p]+(i+1,)+ind[p:nc]
+#             #             m.addConstr(Q_.sum(axis=p)[...,selected_inp]==Q_.sum(axis=p)[...,selected_inp_2], "No-signaling")
+            
+#             # No signaling
+#             for inp in range(cardinp-1):
+#                 m.addConstr(Q_.sum(axis=nc)[...,inp]==Q_.sum(axis=nc)[...,inp+1], "No-signaling")
+            
+            
+#             #Cyclic symmetry
+#             for ind in generate_tuples(nc, cardout, cardinp):
+#                 indperm=cyclic_permute(ind[:(-nc)], shift=-1)+cyclic_permute(ind[(-nc):], shift=-1)
+#                 m.addConstr(Q_[ind]==Q_[indperm])
+            
+
+#     return Q_
+
+def nonfanout_inflation(p_ABCXYZ:np.ndarray, nc:int):
+    (cardA, cardB, cardC, cardX, cardY, cardZ) = p_ABCXYZ.shape 
+    assert cardA == cardB == cardC, "The input probability distribution is not valid, the marginals do not match"
+    assert cardX == cardY == cardZ, "The input probability distribution is not valid, the marginals do not match"
+
+    with (gp.Env(empty=True) as env):
+        # env.setParam('OutputFlag', 0) # To supress output
+        env.start()
+        with gp.Model("qcp", env=env) as m:
+            def cycle_variables(nc, cardout, cardinp):
+                cardinalities = tuple(repeat(cardout, times=nc)) + tuple(repeat(cardinp, times=nc)) 
+                # Defining the probabilities
+                Q_ = m.addMVar(cardinalities, lb=0, name="Q_")
+                # Normalization
+                for ind in itertools.product(range(cardinp), repeat=nc):
+                    m.addConstr(Q_.sum(axis=(tuple(range(nc))))[ind]==1, "Normalization")
+
+                # Independencies
+                tuplenc = tuple(range(nc))
+                tuple_0 = tuple(np.delete(tuplenc,0))
+                for outs in itertools.product(range(cardout), repeat=nc-2):
+                    for inps in itertools.product(range(cardinp), repeat=nc):
+                        m.addConstr(Q_.sum(axis=(1, nc-1))[outs+inps]==Q_.sum(axis=(tuple_0))[(outs[0],)+inps]*Q_.sum(axis=(0,1,nc-1))[tuple(outs[1:(nc-1)])+inps], "Independences")
+
+                # No signaling
+                for inp in range(cardinp-1):
+                    m.addConstr(Q_.sum(axis=nc)[...,inp]==Q_.sum(axis=nc)[...,inp+1], "No-signaling")
+                
+                
+                #Cyclic symmetry
+                for ind in generate_tuples(nc, cardout, cardinp):
+                    indperm=cyclic_permute(ind[:(-nc)], shift=-1)+cyclic_permute(ind[(-nc):], shift=-1)
+                    m.addConstr(Q_[ind]==Q_[indperm])
+                # we can speed this up 
+
+                return Q_
+            
+            # Define the probabilities
+            Qs = [cycle_variables(nc=4+l, cardout=cardA, cardinp=cardX) for l in range(nc-3)]
+            # for l in range(nc-3):
+            #     card_Qtemp = tuple(repeat(cardA, times=l+4)) + tuple(repeat(cardX, times=l+4))
+            #     Qtemp = m.addMVar(card_Qtemp, lb=0, name="Q")
+            #     Qs.append(Qtemp)
+            
+            # for l in range(nc-3):
+            #     Qs.append
+            #     m.addConstr((Qs[l])[...]==cycle_variables(nc=4+l, cardout=cardA, cardinp=cardX), "Variables")
+
+
+            # Injectable sets
+            p_ABXY = p_ABCXYZ.sum(axis=(2))[:,:,:,:,0]
+            # index_tuple_0 = (slice(None),) * 2*(0+2) + (0,) * (4-(0+2))
+            m.addConstr(Qs[0].sum(axis=(2, 3))[:,:,:,:,0,0] == p_ABXY, name="Injectable sets")        
+            
+            if nc>=5:
+                for l in range(1,(nc-3)):
+                    l_1=l-1
+                    l_2=l
+                    index_tuple_1 = (slice(None),) * 2*(l+2) + (0,) * ((l_1+4)-(l+2))
+                    index_tuple_2 = (slice(None),) * 2*(l+2) + (0,) * ((l_2+4)-(l+2))
+                    m.addConstr(Qs[l_1].sum(axis=tuple(range(l+2,l_1+4)))[index_tuple_1]==Qs[l_2].sum(axis=tuple(range(l+2,l_2+4)))[index_tuple_2], "Compatibility")
+            # this could be simplified because we're always just suming over 1 index or 2 indeces so we don't need the range
+            
+            m.setObjective(0.0, GRB.MAXIMIZE)
+            m.Params.NonConvex = 2
+
+            try:
+                m.optimize()
+                m.getAttr('x')  # To trigger an error in case it is not solved, because I made it silent
+                return 1
+            except:
+                return 0
+            
+# # Checks
+prob = np.zeros((2, 2, 2, 1, 1, 1))
+prob[0,0,0,0,0,0] = 1/2
+prob[1,1,1,0,0,0] = 1/2
+
+def prob_postquantum(E1, E2, E3):
+    p = np.zeros((2, 2, 2, 1, 1, 1))
+    for a, b, c in np.ndindex(2, 2, 2):
+        ap = 2*a-1
+        bp = 2*b-1
+        cp = 2*c-1
+        p[a, b, c] = (1/8) * (1 
+                                 + (ap + bp + cp)*E1 
+                                 + (ap*bp + bp*cp + cp*ap)*E2 
+                                 + ap*bp*cp*E3)
+    return p
+
+p_post = np.zeros((2, 2, 2, 1, 1, 1))
+for a, b, c in np.ndindex(2, 2, 2):
+    p_post[a,b,c,0,0,0] = prob_postquantum(0,0,np.sqrt(2))[a,b,c]
+
+def prob_agree(n: int) -> np.ndarray:
+    prob = np.zeros((n, n, n, 1, 1, 1))
+    for i in range(n):
+        prob[i, i, i,0,0,0] = 1/n
+    return prob
+
+
+prob_disagree = np.zeros((3, 3, 3, 1, 1, 1))
+for i in range(3):
+    prob_disagree[i, (i+1)%3, (i+2)%3,0,0,0] = 1/6
+    prob_disagree[i, (i+2)%3, (i+1)%3,0,0,0] = 1/6
+
+def prob_twosame(n: int) -> np.ndarray:
+
+    prob = np.zeros((n, n, n, 1, 1, 1))
+
+    prob_value=1/(3*(n-1)*n)
+    for i in range(n):
+        for j in range (n):
+            if i!=j:
+                prob[i,i,j,0,0,0]=prob_value
+                prob[i,j,i,0,0,0]=prob_value
+                prob[j,i,i,0,0,0]=prob_value
+    return prob
+# print("\n\nChecking the feasibility of the all-disagree distribution")
+# print(nonfanout_inflation(prob_disagree,5))
+
+    
+print("\n\nChecking the feasibility of the 2 agree")
+print(nonfanout_inflation(prob_twosame(3), 7))
+
+
+# print("\n\nChecking the feasibility of the noisy-GHZ distribution")
+# print(nonfanout_inflation(p_post, 8))
+
+
+# print("Checking the infeasibility of the always-agree distribution")
+# print(nonfanout_inflation(prob,4))
+
+# p_zeros = np.zeros((2, 2, 2, 1, 1, 1))
+# p_zeros[0,0,0,0,0,0] = 1
+# print("\n\nChecking the feasibility of the noisy-GHZ distribution")
+# print(nonfanout_inflation(p_zeros, 10))
+
+
+
+
+
+
+
+
+
+
+        
