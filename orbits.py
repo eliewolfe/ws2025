@@ -1,4 +1,5 @@
 import numpy as np
+from tqdm import tqdm
 
 def identify_orbits(tensor_shape, permutation):
     """
@@ -7,14 +8,14 @@ def identify_orbits(tensor_shape, permutation):
     Parameters
     ----------
     tensor_shape : tuple
-        Shape of the tensor.
+    Shape of the tensor.
     permutation : list
-        Permutation representing the symmetry.
+    Permutation representing the symmetry.
 
     Returns
     -------
     orbits : np.ndarray
-        Array where each element represents the orbit index of the corresponding tensor element.
+    Array where each element represents the orbit index of the corresponding tensor element.
     """
     total_elements = np.prod(tensor_shape)
     paradigm = np.arange(total_elements, dtype=int).reshape(tensor_shape)
@@ -22,7 +23,7 @@ def identify_orbits(tensor_shape, permutation):
     discovered_yet = np.zeros(total_elements, dtype=bool)
     shifted = paradigm.transpose(permutation).flat
     perm_iterator = tuple(range(len(permutation)))
-    for i in range(total_elements):
+    for i in tqdm(range(total_elements)):
         if discovered_yet[i]:
             continue
 
@@ -32,25 +33,26 @@ def identify_orbits(tensor_shape, permutation):
             current_orbit.append(i)
             i = shifted[i]
         orbits_found.append(current_orbit)
-        # current_indices = np.unravel_index(i, tensor_shape)
-        # orbit_indices = [current_indices]
-        # discovered_yet.flat[i] = orbit_index
-        #
-        # for _ in range(len(permutation)):
-        #     new_indices = tuple(current_indices[p] for p in permutation)
-        #     flat_index = int(np.ravel_multi_index(new_indices, tensor_shape))
-        #     current_orbit.append(flat_index)
-        #     if discovered_yet.flat[flat_index] == 0:
-        #         discovered_yet.flat[flat_index] = orbit_index
-        #         orbit_indices.append(new_indices)
-        #     current_indices = new_indices
-        # orbits_found.append(current_orbit)
-        # orbit_index += 1
+    # current_indices = np.unravel_index(i, tensor_shape)
+    # orbit_indices = [current_indices]
+    # discovered_yet.flat[i] = orbit_index
+    #
+    # for _ in range(len(permutation)):
+    #     new_indices = tuple(current_indices[p] for p in permutation)
+    #     flat_index = int(np.ravel_multi_index(new_indices, tensor_shape))
+    #     current_orbit.append(flat_index)
+    #     if discovered_yet.flat[flat_index] == 0:
+    #         discovered_yet.flat[flat_index] = orbit_index
+    #         orbit_indices.append(new_indices)
+    #     current_indices = new_indices
+    # orbits_found.append(current_orbit)
+    # orbit_index += 1
 
     return np.array(orbits_found, dtype=int)
 
-# Example usage
-tensor_shape = (3, 3, 3)
-permutation = [2, 0, 1]
-orbits = identify_orbits(tensor_shape, permutation)
-print(orbits)
+if __name__ == "__main__":
+    # Example usage
+    tensor_shape = (3, 3, 3)
+    permutation = [2, 0, 1]
+    orbits = identify_orbits(tensor_shape, permutation)
+    print(orbits)

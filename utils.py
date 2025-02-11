@@ -1,6 +1,11 @@
 from typing import List, Tuple, Set
-import i
+import itertools
+from collections import deque
 import numpy as np
+from more_itertools import powerset
+
+def maximal_injectable_sets(alices: List[Tuple[int, int]]) -> List:
+  return all_and_maximal_cliques(injection_graph(alices), isolate_maximal=True)[1]
 
 def all_and_maximal_cliques(adjmat: np.ndarray,
               max_n=0,
@@ -49,7 +54,7 @@ def all_and_maximal_cliques(adjmat: np.ndarray,
   return all_cliques, maximal_cliques
 
 def hypergraph_full_cleanup(hypergraph: Set[Tuple[Set, Set]]) -> Set[Tuple[Set, Set]]:
-  hypergraph_copy = set(map(frozenset, hypergraph))
+  hypergraph_copy = set(hypergraph)
   cleaned_hypergraph_copy = hypergraph_copy.copy()
   for dominating_hyperedge in hypergraph_copy:
     if dominating_hyperedge in cleaned_hypergraph_copy:
@@ -71,23 +76,44 @@ def injection_graph(alices: List[Tuple[int, int]]) -> np.ndarray:
   adjacency = np.zeros((n,n), dtype=bool)
   for i, alice in enumerate(alices):
     for j, bob in enumerate(alices):
-      if alice[1] == bob[0]: #or alice[0] == bob[1]:
+      if alice[1] == bob[0] and alice[0] != bob[1]:
         adjacency[i,j] = True
         adjacency[j,i] = True
   return adjacency
 
-def factorization_test(sets:Tuple[Set[Tuple[int, int]], Set[Tuple[int, int]]]) -> bool:
-  indices0 = set([x for xs in sets[0] for x in xs])
-  indices1 = set([x for xs in sets[1] for x in xs])
+def factorization_test(set0: Set[Tuple[int, int]], set1: Set[Tuple[int, int]]) -> bool:
+  """
+  Returns True iff the intersection of the indices of the two sets is empty.
+  """
+  indices0 = set([x for xs in set0 for x in xs])
+  indices1 = set([x for xs in set1 for x in xs])
+  return indices0.isdisjoint(indices1)
 
-  return len(set(indices0) & set(indices1))
+def maximal_factorizing_pairs(alices: List[Tuple[int, int]]) -> List[Tuple[List, List]]:
+  #First let's obtain all pairs of factorizing sets, then we'll filter for maximality.
+  factorizing_pairs = []
+  explored_sets = set()
+  alice_indices = set(range(len(alices)))
+  for first_set in powerset(sorted(alice_indices)):
+    explored_sets.add(frozenset(first_set))
+    if not first_set:
+      continue
+    first_alices = [alices[i] for i in first_set]
+    for second_set in powerset(sorted(alice_indices.difference(first_set))):
+      if frozenset(second_set) in explored_sets:
+        continue 
+      second_alices = [alices[i] for i in second_set]
+      if factorization_test(first_alices, second_alices):
+        factorizing_pairs.append((first_set, second_set))
+  return hypergraph_full_cleanup(factorizing_pairs)
 
-def factorizing_pairs_from_injectable_sets(injectable_sets: List[Set[Tuple[int, int]]]) -> List[Tuple[Set[Tuple[int, int]], Set[Tuple[int, int]]]]:
-  return list(filter(factorization_test, itertools.permutations(injectable_sets, 2)))
 
-def factorizing_pairs_from_alices(alices: List[Tuple[int, int]]) -> np.ndarray:
-  injectable_sets, maximal_injectable_sets = all_and_maximal_cliques(injection_graph(alices), isolate_maximal=False)
-  return factorizing_pairs_from_injectable_sets(injectable_sets)
+# def factorizing_pairs_from_injectable_sets(injectable_sets: List[Set[Tuple[int, int]]]) -> List[Tuple[Set[Tuple[int, int]], Set[Tuple[int, int]]]]:
+#   return list(filter(factorization_test, itertools.permutations(injectable_sets, 2)))
+
+# def factorizing_pairs_from_alices(alices: List[Tuple[int, int]]) -> np.ndarray:
+#   injectable_sets, maximal_injectable_sets = all_and_maximal_cliques(injection_graph(alices), isolate_maximal=False)
+#   return factorizing_pairs_from_injectable_sets(injectable_sets)
 
 def factorization_subset(
   set1:Tuple[Set[Tuple[int, int]], Set[Tuple[int, int]]], 
@@ -95,9 +121,21 @@ def factorization_subset(
   """
   Check if the pair set2 has elements all of which are subsets of elements of set1.
   """
+  set1 = tuple(map(set, set1))
+  set2 = tuple(map(set, set2))
   return (
     (set1[0].issuperset(set2[0]) and set1[1].issuperset(set2[1])) 
     or 
     (set1[0].issuperset(set2[1]) and set1[1].issuperset(set2[0]))
     )
+
+if __name__ == "__main__":
+  list_of_Alices = [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (2, 0), (1, 3), (3, 1)]
+  array_of_Alices = np.array(list_of_Alices, dtype=object)
   
+  for factor_pair in maximal_factorizing_pairs(list_of_Alices):
+    interpretation = [list(map(tuple, array_of_Alices[list(factor)])) for factor in factor_pair]
+    print(f"Factorization {list(factor_pair)} corresponding to {interpretation}")
+
+  for max_inj in maximal_injectable_sets(list_of_Alices):
+    print(f"Injection {max_inj} corresponding to {list(map(tuple,array_of_Alices[max_inj]))}")
