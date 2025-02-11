@@ -4,6 +4,7 @@ import gurobipy as gp
 import itertools 
 from tqdm import tqdm
 from sys import stderr
+from orbits import identify_orbits
 
 def eprint(*args, **kwargs):
     print(*args, file=stderr, **kwargs)
@@ -40,13 +41,33 @@ def test_distribution_with_symmetric_fanout(p_obs: np.ndarray, verbose=2) -> str
     # IMPOSE SYMMETRY
     if verbose:
         eprint("Imposing symmetries...")
-    Q_infl=m.addMVar(shape=inflation_shape, lb=0)
-    total_nof_vars = d**nof_Alices
-    replacement_indices = np.arange(total_nof_vars).reshape(inflation_shape)
-    alternative_indices = replacement_indices.transpose(new_order).ravel()
-    Q_inf_flat = Q_infl.reshape((total_nof_vars))
-    m.addConstr(Q_inf_flat == Q_inf_flat[alternative_indices])
-        
+    Q_infl = np.empty(shape=inflation_shape, dtype=object)
+    orbits = identify_orbits(inflation_shape, new_order)
+    Q_infl_raw = m.addMVar(shape=(len(orbits),), lb=0)
+    for (var, orbit) in zip(Q_infl_raw.tolist(), orbits):
+        Q_infl.flat[orbit] = var
+    m.update()
+    Q_infl = gp.MVar.fromlist(Q_infl)
+
+    # total_nof_vars = d**nof_Alices
+    # orbit_template = np.zeros((total_nof_vars,), dtype=int)
+    # orbit_instance = 1
+    # for i in range(total_nof_vars):
+    #     if orbit_template[i] == 0:
+    #         #time for a new orbit!
+    #         orbit_template[i] == orbit_instance
+    #
+    #         orbit_template[i] = orbit_instance
+    #         orbit_instance += 1
+    #         for sym in np.array(symmetries, dtype=int):
+    #             new_indices = np.array(i, dtype=int)[sym]
+    #             new_indices = tuple(new_indices.flat)
+    #             orbit_template[new_indices] = orbit_template[i]
+    # replacement_indices = np.arange(total_nof_vars).reshape(inflation_shape)
+    # alternative_indices = replacement_indices.transpose(new_order).ravel()
+    # Q_inf_flat = Q_infl.reshape((total_nof_vars))
+    # m.addConstr(Q_inf_flat == Q_inf_flat[alternative_indices])
+    #
     def marginal_on_internal(indices: tuple) -> gp._matrixapi.MVar:
         temp_mvar = m.addMVar(shape=(d,)*len(indices))
         to_sum_over = set(range(nof_Alices)).difference(indices)
