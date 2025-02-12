@@ -47,10 +47,12 @@ def test_distribution_with_symmetric_fanout(p_obs: np.ndarray, n:int, verbose=2)
     #Internal mVar, 8 Alices 
     # IMPOSE SYMMETRY
     if verbose:
-        eprint("Imposing symmetries...")
+        eprint("Discovering symmetries of inflation graph probabilities...")
     Q_infl = np.empty(shape=inflation_shape, dtype=object)
     orbits = identify_orbits(inflation_shape, new_order)
     Q_infl_raw = m.addMVar(shape=(len(orbits),), lb=0)
+    if verbose:
+        eprint("Constructing symmetric MVar...")
     for (var, orbit) in zip(Q_infl_raw.tolist(), orbits):
         Q_infl.flat[orbit] = var
     m.update()
@@ -90,6 +92,8 @@ def test_distribution_with_symmetric_fanout(p_obs: np.ndarray, n:int, verbose=2)
         return gp.MVar.fromlist(as_ndarray.transpose(order))
 
     # factorization
+    if verbose:
+        eprint("Imposing factorization constraints...")
     # TODO: use symmetries to reduce constraints
     for pair in tqdm(utils.maximal_factorizing_pairs(list_of_Alices)):
         indices1 = sorted(pair[0])
@@ -104,23 +108,22 @@ def test_distribution_with_symmetric_fanout(p_obs: np.ndarray, n:int, verbose=2)
         
         m.addConstr(m1_r * m2_r == m_total)
 
-    # mA01 = _marginal_on([0])
-    # mA23 = _marginal_on([2])
-    # mA0123 = _marginal_on([0,2])
-    # m.addConstr(mA01.reshape((d,1))*mA23.reshape((1,d)) == mA0123)
-
-    # mA02and20 = _marginal_on([4,5])
-    # mA13and31 = _marginal_on([6,7])
-    # mA02and20and13and31 = _marginal_on([4,5,6,7])
-    # m.addConstr(mA02and20.reshape((d,d,1,1))*mA13and31.reshape((1,1,d,d)) == mA02and20and13and31)
 
     # injectable sets
+    if verbose:
+        eprint("Imposing injectable set marginal equalities...")
     # TODO: use symmetries to reduce constraints
     maximal = utils.maximal_injectable_sets(list_of_Alices)
     for clique in tqdm(maximal):
         m_injectable = _marginal_on(clique)
-        m.addConstr(m_injectable == p)
+        if len(clique) == 3:
+            p_marg = p
+        else:
+            p_marg = marginal_on(p, tuple(range(len(clique))))
+        m.addConstr(m_injectable == p_marg)
 
+    if verbose:
+        eprint("Initiating optimization of the model...")
     m.optimize()
 
     # Dictionary to translate status codes
