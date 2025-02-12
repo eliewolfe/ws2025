@@ -165,7 +165,10 @@ def test_distribution_with_symmetric_fanout(
     status_message = status_dict.get(m.status, f"Unknown status ({m.status})")
     print(f"Model status: {m.status} - {status_message}")
 
-    return m.status
+    if maximize_visibility:
+        return m.objVal
+    else:
+        return m.status
 
     # if m.status == GRB.OPTIMAL:
     #     print("\nOptimal solution:")
@@ -209,12 +212,14 @@ if __name__ == "__main__":
     
     # print("\n ITERATIONS:")
     # print(find_solution(outcomes, inflation, 0.01, [0.4, 0.5]))
-    test_distribution_with_symmetric_fanout(
+    val = test_distribution_with_symmetric_fanout(
         p_obs=distribution_for_vis_analysis,
         alices=list_of_Alices(inflation), 
         verbose=0, 
         maximize_visibility=True, 
-        visibility_bounds=(0.4,0.5))
+        visibility_bounds=(0.3,0.5))
+
+    print(f"The optimal visibility is {val}")
 
     # print(prob_noisy_GHZ(3, 0.5))
 
