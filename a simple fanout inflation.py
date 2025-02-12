@@ -1,4 +1,4 @@
-from __future__ import print_function
+from typing import List, Tuple, Set
 import numpy as np
 import gurobipy as gp
 from gurobipy import GRB
@@ -7,9 +7,9 @@ from tqdm import tqdm
 from sys import stderr
 from orbits import identify_orbits
 import utils
+# from nonfanout_inflation_general import prob_twosame
+from utils import eprint
 
-def eprint(*args, **kwargs):
-    print(*args, file=stderr, **kwargs)
 
 def marginal_on(p:np.ndarray, indices: tuple) -> np.ndarray:
     set3 = set(range(p.ndim))
@@ -20,44 +20,67 @@ def marginal_on(p:np.ndarray, indices: tuple) -> np.ndarray:
     # print("Extra re-arranging:", order
     return temp_arr.transpose(order)
 
-def test_distribution_with_symmetric_fanout(p_obs: np.ndarray, n:int, verbose=2) -> str:
-    list_of_Alices = list(itertools.permutations(range(n), 2))
+def list_of_Alices(n: int, verbose=2) -> List[Tuple[int,int]]:
+    alices = list(itertools.permutations(range(n), 2))
     for i in range(n):
-        list_of_Alices.remove((i, (i-1)%n))
+        alices.remove((i, (i-1)%n))
     if verbose:
         eprint("List of Alices:", list_of_Alices)
+    return alices
+
+def test_distribution_with_symmetric_fanout(
+    p_obs: np.ndarray, 
+    alices:List[Tuple[int,int]], 
+    verbose=2,
+    maximize_visibility=False,
+    visibility_bounds=(0,1)) -> str:
+    env = gp.Env(empty=True)
+    env.setParam('OutputFlag', verbose)
+    env.start()
+
+    # n = np.max([item for sublist in alices for item in sublist]) + 1
+    n = max(max(pair) for pair in alices) + 1
+    nof_Alices = len(alices)
 
     #Discover symmetry
-    canonical_order = {pair: i for i, pair in enumerate(list_of_Alices)}
-    under_cylic_symmetry = [tuple(range(n)[(p+1)%n] for p in pair) for pair in list_of_Alices]
-    # print(under_cylic_symmetry)
-    new_order=tuple(canonical_order[pair] for pair in under_cylic_symmetry)
-    # print(new_order)
-    nof_Alices = len(list_of_Alices)
+    dimensional_symmetry = utils.discover_symmetries(alices)
 
-    p = np.asarray(p_obs)
-    d = p.shape[0]
-    assert p.ndim == 3, "p_obs must be a tripartite probability distibution"
-    assert np.array_equiv(p.shape, d), "all parties must have the same cardinality"
+    p_ideal = np.asarray(p_obs)
+    assert p_ideal.ndim == 3, "p_obs must be a tripartite probability distibution"
+    d = p_ideal.shape[0]
+    assert np.array_equiv(p_ideal.shape, d), "all parties must have the same cardinality"
 
     inflation_shape = nof_Alices*(d,)
+    inflation_flat_shape = d**nof_Alices
 
     m=gp.Model()
 
-    #Internal mVar, 8 Alices 
+    
+    v = m.addVar(lb=visibility_bounds[0], ub=visibility_bounds[1], name="v")
+    noise = np.ones_like(p_ideal)/inflation_flat_shape
+    if maximize_visibility:
+        m.setObjective(v, sense=gp.GRB.MAXIMIZE)
+        p = p_ideal * v + noise * (1-v)
+    else:
+        p = p_ideal
+        
     # IMPOSE SYMMETRY
-    if verbose:
-        eprint("Discovering symmetries of inflation graph probabilities...")
-    Q_infl = np.empty(shape=inflation_shape, dtype=object)
-    orbits = identify_orbits(inflation_shape, new_order)
-    Q_infl_raw = m.addMVar(shape=(len(orbits),), lb=0)
-    if verbose:
-        eprint("Constructing symmetric MVar...")
-    for (var, orbit) in zip(Q_infl_raw.tolist(), orbits):
-        Q_infl.flat[orbit] = var
-    m.update()
-    Q_infl = gp.MVar.fromlist(Q_infl)
-    Q_infl.__name__ = "Q_infl"
+    if len(dimensional_symmetry) == 1:
+        # if the only permutation is the identity, then there is no need to impose symmetry
+        Q_infl = m.addMVar(shape=inflation_shape, lb=0)
+    else:
+        if verbose:
+            eprint("Discovering symmetries of inflation graph probabilities...")
+        Q_infl = np.empty(shape=inflation_shape, dtype=object)
+        orbits = identify_orbits(inflation_shape, dimensional_symmetry, verbose=verbose)
+        Q_infl_raw = m.addMVar(shape=(len(orbits),), lb=0)
+        if verbose:
+            eprint("Constructing symmetric MVar...")
+        for (var, orbit) in tqdm(zip(Q_infl_raw.tolist(), orbits), total=len(orbits), disable=not verbose):
+            Q_infl.flat[orbit] = var
+        m.update()
+        Q_infl = gp.MVar.fromlist(Q_infl)
+        Q_infl.__name__ = "Q_infl"                                      
 
     # total_nof_vars = d**nof_Alices
     # orbit_template = np.zeros((total_nof_vars,), dtype=int)
@@ -95,7 +118,7 @@ def test_distribution_with_symmetric_fanout(p_obs: np.ndarray, n:int, verbose=2)
     if verbose:
         eprint("Imposing factorization constraints...")
     # TODO: use symmetries to reduce constraints
-    for pair in tqdm(utils.maximal_factorizing_pairs(list_of_Alices)):
+    for pair in tqdm(utils.maximal_factorizing_pairs(alices), disable=not verbose):
         indices1 = sorted(pair[0])
         indices2 = sorted(pair[1])
 
@@ -108,13 +131,12 @@ def test_distribution_with_symmetric_fanout(p_obs: np.ndarray, n:int, verbose=2)
         
         m.addConstr(m1_r * m2_r == m_total)
 
-
     # injectable sets
     if verbose:
         eprint("Imposing injectable set marginal equalities...")
     # TODO: use symmetries to reduce constraints
-    maximal = utils.maximal_injectable_sets(list_of_Alices)
-    for clique in tqdm(maximal):
+    maximal = utils.maximal_injectable_sets(alices)
+    for clique in tqdm(maximal, disable=not verbose):
         m_injectable = _marginal_on(clique)
         if len(clique) == 3:
             p_marg = p
@@ -128,74 +150,73 @@ def test_distribution_with_symmetric_fanout(p_obs: np.ndarray, n:int, verbose=2)
 
     # Dictionary to translate status codes
     status_dict = {
-        gp.GRB.OPTIMAL: "Optimal solution found",
-        gp.GRB.UNBOUNDED: "Model is unbounded",
-        gp.GRB.INFEASIBLE: "Model is infeasible",
-        gp.GRB.INF_OR_UNBD: "Model is infeasible or unbounded",
-        gp.GRB.INTERRUPTED: "Optimization was interrupted",
-        gp.GRB.TIME_LIMIT: "Time limit reached",
-        gp.GRB.SUBOPTIMAL: "Suboptimal solution found",
-        gp.GRB.USER_OBJ_LIMIT: "User objective limit reached",
-        gp.GRB.NUMERIC: "Numerical issues",
+        GRB.OPTIMAL: "Optimal solution found",
+        GRB.UNBOUNDED: "Model is unbounded",
+        GRB.INFEASIBLE: "Model is infeasible",
+        GRB.INF_OR_UNBD: "Model is infeasible or unbounded",
+        GRB.INTERRUPTED: "Optimization was interrupted",
+        GRB.TIME_LIMIT: "Time limit reached",
+        GRB.SUBOPTIMAL: "Suboptimal solution found",
+        GRB.USER_OBJ_LIMIT: "User objective limit reached",
+        GRB.NUMERIC: "Numerical issues",
     }
 
     # Print model status
     status_message = status_dict.get(m.status, f"Unknown status ({m.status})")
     print(f"Model status: {m.status} - {status_message}")
 
-    if m.status == GRB.OPTIMAL:
-        print("\nOptimal solution:")
-        sol = np.asarray(Q_infl.x)
-        for i in orbits[:,0]:
-            val = sol.flat[i]
-            if val > 1e-6:
-                print(f"Q_infl[{tuple(np.unravel_index(i, inflation_shape))}]: {val}")
-        #for v in m.getVars():
-            #if v.x > 0:
-            #    print(f"{v.varName}: {v.x}")
-        print(f"Objective value: {m.objVal}")
-    elif m.status == gp.GRB.INFEASIBLE:
-        """
-            Addition to obtain more information about the infeasibility
-        """
-        print("\nThe model is infeasible. Computing IIS...")
-        m.computeIIS()
+    return m.status
 
-        print("\n--- IIS Report ---")
+    # if m.status == GRB.OPTIMAL:
+    #     print("\nOptimal solution:")
+    #     sol = np.asarray(Q_infl.x)
+    #     for i in orbits[:,0]:
+    #         val = sol.flat[i]
+    #         if val > 1e-6:
+    #             print(f"Q_infl[{tuple(np.unravel_index(i, inflation_shape))}]: {val}")
+    #     #for v in m.getVars():
+    #         #if v.x > 0:
+    #         #    print(f"{v.varName}: {v.x}")
+    #     print(f"Objective value: {m.objVal}")
+    # elif m.status == gp.GRB.INFEASIBLE:
+    #     """
+    #         Addition to obtain more information about the infeasibility
+    #     """
+    #     print("\nThe model is infeasible. Computing IIS...")
+    #     m.computeIIS()
+
+    #     print("\n--- IIS Report ---")
         
-        # Print constraints that are part of the IIS
-        print("Conflicting constraints:")
-        for constr in m.getConstrs():
-            if constr.IISConstr:  # True if this constraint is in the IIS
-                print(f"  - {constr.ConstrName}")
+    #     # Print constraints that are part of the IIS
+    #     print("Conflicting constraints:")
+    #     for constr in m.getConstrs():
+    #         if constr.IISConstr:  # True if this constraint is in the IIS
+    #             print(f"  - {constr.ConstrName}")
 
-        # Print variables that are part of the IIS
-        print("\nConflicting variables:")
-        for var in m.getVars():
-            if var.IISLB or var.IISUB:  # True if this variable is in the IIS
-                print(f"  - {var.varName} (Lower Bound: {var.IISLB}, Upper Bound: {var.IISUB})")
+    #     # Print variables that are part of the IIS
+    #     print("\nConflicting variables:")
+    #     for var in m.getVars():
+    #         if var.IISLB or var.IISUB:  # True if this variable is in the IIS
+    #             print(f"  - {var.varName} (Lower Bound: {var.IISLB}, Upper Bound: {var.IISUB})")
 
-def prob_agree_or_disagree(n: int) -> np.ndarray:
-    prob = np.zeros((n, n, n))
-    agree_events = n
-    disagree_events = n*(n-1)*(n-2)
-    n_events = agree_events + disagree_events
 
-    for i in range(n):
-        prob[i, i, i] = 1/n_events
-
-    for (i,j,k) in itertools.permutations(range(n), 3):
-        prob[i, j, k] = 1/n_events
-
-    assert prob.sum() == 1, "probabilities must sum to 1"
-    return prob
 
 if __name__ == "__main__":
-    import sys
-    outcomes = 4 # int(sys.argv[1])
-    inflation = 4
+    from distlib import prob_agree
+    distribution_for_vis_analysis = prob_agree(2)
+    inflation = 5
 
-    test_distribution_with_symmetric_fanout(prob_agree_or_disagree(outcomes), inflation)
+    
+    # print("\n ITERATIONS:")
+    # print(find_solution(outcomes, inflation, 0.01, [0.4, 0.5]))
+    test_distribution_with_symmetric_fanout(
+        p_obs=distribution_for_vis_analysis,
+        alices=list_of_Alices(inflation), 
+        verbose=0, 
+        maximize_visibility=True, 
+        visibility_bounds=(0.4,0.5))
+
+    # print(prob_noisy_GHZ(3, 0.5))
 
     # from sympy import Symbol
     # p_test = np.empty((2,2,2,2), dtype=object)

@@ -1,13 +1,61 @@
+from __future__ import print_function
 from typing import List, Tuple, Set
 import itertools
 from collections import deque
 import numpy as np
 from more_itertools import powerset
+from sys import stderr
+from operator import itemgetter
+### PUBLIC FUNCTIONS ###
+
+def eprint(*args, **kwargs):
+    print(*args, file=stderr, **kwargs)
+
 
 def maximal_injectable_sets(alices: List[Tuple[int, int]]) -> List:
-  return all_and_maximal_cliques(injection_graph(alices), isolate_maximal=True)[1]
+  return _all_and_maximal_cliques(_injection_graph(alices), isolate_maximal=True)[1]
 
-def all_and_maximal_cliques(adjmat: np.ndarray,
+
+def maximal_factorizing_pairs(alices: List[Tuple[int, int]]) -> List[Tuple[List, List]]:
+  #First let's obtain all pairs of factorizing sets, then we'll filter for maximality.
+  factorizing_pairs = []
+  explored_sets = set()
+  alice_indices = set(range(len(alices)))
+  for first_set in powerset(sorted(alice_indices)):
+    explored_sets.add(frozenset(first_set))
+    if not first_set:
+      continue
+    first_alices = [alices[i] for i in first_set]
+    for second_set in powerset(sorted(alice_indices.difference(first_set))):
+      if frozenset(second_set) in explored_sets:
+        continue 
+      second_alices = [alices[i] for i in second_set]
+      if _factorization_test(first_alices, second_alices):
+        factorizing_pairs.append((first_set, second_set))
+  return _hypergraph_full_cleanup(factorizing_pairs)
+
+def discover_symmetries(alices: List[Tuple[int, int]]) -> np.ndarray:
+  canonical_order = {pair: i for i, pair in enumerate(alices)}
+  nof_Alices = len(alices)
+  flat_indices = tuple(itertools.chain.from_iterable(alices))
+  nof_flat_indices = len(flat_indices)
+  all_copy_indices = sorted(set(itertools.chain.from_iterable(alices)))
+  assert np.array_equal(all_copy_indices, np.arange(len(all_copy_indices))), "Copy indices must be contiguous."
+  discovered_symmetries = []
+  for perm_candidate in itertools.permutations(all_copy_indices):
+    permuted_flat_indices = itemgetter(*flat_indices)(perm_candidate)
+    relabelled_alices = [permuted_flat_indices[i:i+2] for i in range(0, nof_flat_indices, 2)]
+    try:
+      discovered_symmetries.append([canonical_order[pair] for pair in relabelled_alices])
+    except KeyError:
+      continue
+  assert len(discovered_symmetries) >= 1, "At least the identity permutation should be found."
+  return np.array(discovered_symmetries, dtype=int)
+
+
+### PRIVATE FUNCTIONS ###
+
+def _all_and_maximal_cliques(adjmat: np.ndarray,
               max_n=0,
               isolate_maximal=True) -> (List, List):
   """Based on NetworkX's `enumerate_all_cliques`.
@@ -53,14 +101,14 @@ def all_and_maximal_cliques(adjmat: np.ndarray,
         queue.append((new_base, new_cnbrs))
   return all_cliques, maximal_cliques
 
-def hypergraph_full_cleanup(hypergraph: Set[Tuple[Set, Set]]) -> Set[Tuple[Set, Set]]:
+def _hypergraph_full_cleanup(hypergraph: Set[Tuple[Set, Set]]) -> Set[Tuple[Set, Set]]:
   hypergraph_copy = set(hypergraph)
   cleaned_hypergraph_copy = hypergraph_copy.copy()
   for dominating_hyperedge in hypergraph_copy:
     if dominating_hyperedge in cleaned_hypergraph_copy:
       dominated_hyperedges = []
       for dominated_hyperedge in cleaned_hypergraph_copy:
-        if not factorization_subset(dominating_hyperedge, dominated_hyperedge):
+        if not _factorization_subset(dominating_hyperedge, dominated_hyperedge):
           continue
         if dominated_hyperedge == dominating_hyperedge:
           continue
@@ -70,7 +118,7 @@ def hypergraph_full_cleanup(hypergraph: Set[Tuple[Set, Set]]) -> Set[Tuple[Set, 
       cleaned_hypergraph_copy.difference_update(dominated_hyperedges)
   return cleaned_hypergraph_copy
 
-def injection_graph(alices: List[Tuple[int, int]]) -> np.ndarray:
+def _injection_graph(alices: List[Tuple[int, int]]) -> np.ndarray:
   # Caution: injectable sets learned from this graph have an orientation which must be accounted for!
   n = len(alices)
   adjacency = np.zeros((n,n), dtype=bool)
@@ -81,7 +129,7 @@ def injection_graph(alices: List[Tuple[int, int]]) -> np.ndarray:
         adjacency[j,i] = True
   return adjacency
 
-def factorization_test(set0: Set[Tuple[int, int]], set1: Set[Tuple[int, int]]) -> bool:
+def _factorization_test(set0: Set[Tuple[int, int]], set1: Set[Tuple[int, int]]) -> bool:
   """
   Returns True iff the intersection of the indices of the two sets is empty.
   """
@@ -89,33 +137,8 @@ def factorization_test(set0: Set[Tuple[int, int]], set1: Set[Tuple[int, int]]) -
   indices1 = set([x for xs in set1 for x in xs])
   return indices0.isdisjoint(indices1)
 
-def maximal_factorizing_pairs(alices: List[Tuple[int, int]]) -> List[Tuple[List, List]]:
-  #First let's obtain all pairs of factorizing sets, then we'll filter for maximality.
-  factorizing_pairs = []
-  explored_sets = set()
-  alice_indices = set(range(len(alices)))
-  for first_set in powerset(sorted(alice_indices)):
-    explored_sets.add(frozenset(first_set))
-    if not first_set:
-      continue
-    first_alices = [alices[i] for i in first_set]
-    for second_set in powerset(sorted(alice_indices.difference(first_set))):
-      if frozenset(second_set) in explored_sets:
-        continue 
-      second_alices = [alices[i] for i in second_set]
-      if factorization_test(first_alices, second_alices):
-        factorizing_pairs.append((first_set, second_set))
-  return hypergraph_full_cleanup(factorizing_pairs)
 
-
-# def factorizing_pairs_from_injectable_sets(injectable_sets: List[Set[Tuple[int, int]]]) -> List[Tuple[Set[Tuple[int, int]], Set[Tuple[int, int]]]]:
-#   return list(filter(factorization_test, itertools.permutations(injectable_sets, 2)))
-
-# def factorizing_pairs_from_alices(alices: List[Tuple[int, int]]) -> np.ndarray:
-#   injectable_sets, maximal_injectable_sets = all_and_maximal_cliques(injection_graph(alices), isolate_maximal=False)
-#   return factorizing_pairs_from_injectable_sets(injectable_sets)
-
-def factorization_subset(
+def _factorization_subset(
   set1:Tuple[Set[Tuple[int, int]], Set[Tuple[int, int]]], 
   set2:Tuple[Set[Tuple[int, int]], Set[Tuple[int, int]]]) -> bool:
   """

@@ -182,7 +182,6 @@ for i in range(3):
     prob_disagree[i, (i+2)%3, (i+1)%3,0,0,0] = 1/6
 
 def prob_twosame(n: int) -> np.ndarray:
-
     prob = np.zeros((n, n, n, 1, 1, 1))
 
     prob_value=1/(3*(n-1)*n)
@@ -213,13 +212,4 @@ print(nonfanout_inflation(prob_twosame(3), 7))
 # print("\n\nChecking the feasibility of the noisy-GHZ distribution")
 # print(nonfanout_inflation(p_zeros, 10))
 
-
-
-
-
-
-
-
-
-
-        
+    
