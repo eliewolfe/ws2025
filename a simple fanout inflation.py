@@ -1,10 +1,9 @@
-from typing import List, Tuple, Set
+from typing import List, Tuple
 import numpy as np
 import gurobipy as gp
 from gurobipy import GRB
 import itertools 
 from tqdm import tqdm
-from sys import stderr
 from orbits import identify_orbits
 import utils
 # from nonfanout_inflation_general import prob_twosame
@@ -53,7 +52,8 @@ def test_distribution_with_symmetric_fanout(
 
 
         v = m.addVar(lb=visibility_bounds[0], ub=visibility_bounds[1], name="v")
-        noise = np.ones_like(p_ideal)/inflation_flat_shape
+        noise = np.ones_like(p_ideal)/d**3
+        assert noise.sum() == 1, "Noise must sum to 1"
         if maximize_visibility:
             m.setObjective(v, sense=gp.GRB.MAXIMIZE)
             p = p_ideal * v + noise * (1-v)
@@ -187,21 +187,21 @@ def test_distribution_with_symmetric_fanout(
 
 
 if __name__ == "__main__":
-    from distlib import prob_agree
+    from distlib import prob_agree, prob_noise
     distribution_for_vis_analysis = prob_agree(2)
-    inflation = 5
 
-    
+    alices=list_of_Alices(5)
+
     # print("\n ITERATIONS:")
     # print(find_solution(outcomes, inflation, 0.01, [0.4, 0.5]))
     val = test_distribution_with_symmetric_fanout(
         p_obs=distribution_for_vis_analysis,
-        alices=list_of_Alices(inflation), 
+        alices=alices,
         verbose=0, 
         maximize_visibility=True, 
         visibility_bounds=(0,1))
 
-    # print(f"The optimal visibility is {val}")
+    print(f"The optimal visibility is {val}")
 
     # print(prob_noisy_GHZ(3, 0.5))
 

@@ -1,5 +1,9 @@
 import numpy as np
 
+def prob_noise(n: int) -> np.ndarray:
+    prob = np.ones((n, n, n))/n**3
+    return prob
+
 def prob_agree_or_disagree(n: int) -> np.ndarray:
     prob = np.zeros((n, n, n))
     agree_events = n
