@@ -25,7 +25,7 @@ def list_of_Alices(n: int, verbose=2) -> List[Tuple[int,int]]:
     for i in range(n):
         alices.remove((i, (i-1)%n))
     if verbose:
-        eprint("List of Alices:", list_of_Alices)
+        eprint("List of Alices:", alices)
     return alices
 
 def test_distribution_with_symmetric_fanout(
@@ -34,13 +34,6 @@ def test_distribution_with_symmetric_fanout(
     verbose=2,
     maximize_visibility=False,
     visibility_bounds=(0,1)) -> str:
-    env = gp.Env(empty=True)
-    env.setParam('OutputFlag', verbose)
-    env.start()
-
-    # n = np.max([item for sublist in alices for item in sublist]) + 1
-    n = max(max(pair) for pair in alices) + 1
-    nof_Alices = len(alices)
 
     #Discover symmetry
     dimensional_symmetry = utils.discover_symmetries(alices)
@@ -50,157 +43,146 @@ def test_distribution_with_symmetric_fanout(
     d = p_ideal.shape[0]
     assert np.array_equiv(p_ideal.shape, d), "all parties must have the same cardinality"
 
+    nof_Alices = len(alices)
     inflation_shape = nof_Alices*(d,)
     inflation_flat_shape = d**nof_Alices
+    # n = max(max(pair) for pair in alices) + 1
 
-    m=gp.Model()
 
-    
-    v = m.addVar(lb=visibility_bounds[0], ub=visibility_bounds[1], name="v")
-    noise = np.ones_like(p_ideal)/inflation_flat_shape
-    if maximize_visibility:
-        m.setObjective(v, sense=gp.GRB.MAXIMIZE)
-        p = p_ideal * v + noise * (1-v)
-    else:
-        p = p_ideal
-        
-    # IMPOSE SYMMETRY
-    if len(dimensional_symmetry) == 1:
-        # if the only permutation is the identity, then there is no need to impose symmetry
-        Q_infl = m.addMVar(shape=inflation_shape, lb=0)
-    else:
-        if verbose:
-            eprint("Discovering symmetries of inflation graph probabilities...")
-        Q_infl = np.empty(shape=inflation_shape, dtype=object)
-        orbits = identify_orbits(inflation_shape, dimensional_symmetry, verbose=verbose)
-        Q_infl_raw = m.addMVar(shape=(len(orbits),), lb=0)
-        if verbose:
-            eprint("Constructing symmetric MVar...")
-        for (var, orbit) in tqdm(zip(Q_infl_raw.tolist(), orbits), total=len(orbits), disable=not verbose):
-            Q_infl.flat[orbit] = var
-        m.update()
-        Q_infl = gp.MVar.fromlist(Q_infl)
-        Q_infl.__name__ = "Q_infl"                                      
+    with gp.Env(empty=False, params={'OutputFlag': verbose}) as env, gp.Model(env=env) as m:
 
-    # total_nof_vars = d**nof_Alices
-    # orbit_template = np.zeros((total_nof_vars,), dtype=int)
-    # orbit_instance = 1
-    # for i in range(total_nof_vars):
-    #     if orbit_template[i] == 0:
-    #         #time for a new orbit!
-    #         orbit_template[i] == orbit_instance
-    #
-    #         orbit_template[i] = orbit_instance
-    #         orbit_instance += 1
-    #         for sym in np.array(symmetries, dtype=int):
-    #             new_indices = np.array(i, dtype=int)[sym]
-    #             new_indices = tuple(new_indices.flat)
-    #             orbit_template[new_indices] = orbit_template[i]
-    # replacement_indices = np.arange(total_nof_vars).reshape(inflation_shape)
-    # alternative_indices = replacement_indices.transpose(new_order).ravel()
-    # Q_inf_flat = Q_infl.reshape((total_nof_vars))
-    # m.addConstr(Q_inf_flat == Q_inf_flat[alternative_indices])
-    #
-    def _marginal_on(indices: tuple) -> gp._matrixapi.MVar:
-        """
-        This returns a marginal on the given indices, and respects the order of the indices
-        """
-        temp_mvar = m.addMVar(shape=(d,)*len(indices))
-        all_indices = set(range(nof_Alices))
-        assert all_indices.issuperset(indices), "indices must be in the range 0-2"
-        to_sum_over = all_indices.difference(indices)
-        m.addConstr(temp_mvar == Q_infl.sum(axis=tuple(to_sum_over)))
-        order = np.argsort(indices)
-        as_ndarray = np.array(temp_mvar.tolist(), dtype=object)
-        return gp.MVar.fromlist(as_ndarray.transpose(order))
 
-    # factorization
-    if verbose:
-        eprint("Imposing factorization constraints...")
-    # TODO: use symmetries to reduce constraints
-    for pair in tqdm(utils.maximal_factorizing_pairs(alices), disable=not verbose):
-        indices1 = sorted(pair[0])
-        indices2 = sorted(pair[1])
-
-        m1 = _marginal_on(indices1)
-        m2 = _marginal_on(indices2)
-
-        m_total = _marginal_on(indices1 + indices2)
-        m1_r = m1.reshape((d,)*len(indices1) + (1,)*len(indices2))
-        m2_r = m2.reshape((1,)*len(indices1) + (d,)*len(indices2))
-        
-        m.addConstr(m1_r * m2_r == m_total)
-
-    # injectable sets
-    if verbose:
-        eprint("Imposing injectable set marginal equalities...")
-    # TODO: use symmetries to reduce constraints
-    maximal = utils.maximal_injectable_sets(alices)
-    for clique in tqdm(maximal, disable=not verbose):
-        m_injectable = _marginal_on(clique)
-        if len(clique) == 3:
-            p_marg = p
+        v = m.addVar(lb=visibility_bounds[0], ub=visibility_bounds[1], name="v")
+        noise = np.ones_like(p_ideal)/inflation_flat_shape
+        if maximize_visibility:
+            m.setObjective(v, sense=gp.GRB.MAXIMIZE)
+            p = p_ideal * v + noise * (1-v)
         else:
-            p_marg = marginal_on(p, tuple(range(len(clique))))
-        m.addConstr(m_injectable == p_marg)
+            p = p_ideal
 
-    if verbose:
-        eprint("Initiating optimization of the model...")
-    m.optimize()
+        # IMPOSE SYMMETRY
+        if len(dimensional_symmetry) == 1:
+            # if the only permutation is the identity, then there is no need to impose symmetry
+            Q_infl = m.addMVar(shape=inflation_shape, lb=0)
+        else:
+            if verbose:
+                eprint("Discovering symmetries of inflation graph probabilities...")
+            Q_infl = np.empty(shape=inflation_shape, dtype=object)
+            orbits = identify_orbits(inflation_shape, dimensional_symmetry, verbose=verbose)
+            Q_infl_raw = m.addMVar(shape=(len(orbits),), lb=0)
+            if verbose:
+                eprint("Constructing symmetric MVar...")
+            for (var, orbit) in tqdm(zip(Q_infl_raw.tolist(), orbits), total=len(orbits), disable=not verbose):
+                Q_infl.flat[orbit] = var
+            m.update()
+            Q_infl = gp.MVar.fromlist(Q_infl)
+            Q_infl.__name__ = "Q_infl"
 
-    # Dictionary to translate status codes
-    status_dict = {
-        GRB.OPTIMAL: "Optimal solution found",
-        GRB.UNBOUNDED: "Model is unbounded",
-        GRB.INFEASIBLE: "Model is infeasible",
-        GRB.INF_OR_UNBD: "Model is infeasible or unbounded",
-        GRB.INTERRUPTED: "Optimization was interrupted",
-        GRB.TIME_LIMIT: "Time limit reached",
-        GRB.SUBOPTIMAL: "Suboptimal solution found",
-        GRB.USER_OBJ_LIMIT: "User objective limit reached",
-        GRB.NUMERIC: "Numerical issues",
-    }
+        def _marginal_on(indices: tuple) -> gp._matrixapi.MVar:
+            """
+            This returns a marginal on the given indices, and respects the order of the indices
+            """
+            temp_mvar = m.addMVar(shape=(d,)*len(indices))
+            all_indices = set(range(nof_Alices))
+            assert all_indices.issuperset(indices), "indices must be in the range 0-2"
+            to_sum_over = all_indices.difference(indices)
+            m.addConstr(temp_mvar == Q_infl.sum(axis=tuple(to_sum_over)))
+            order = np.argsort(indices)
+            as_ndarray = np.array(temp_mvar.tolist(), dtype=object)
+            return gp.MVar.fromlist(as_ndarray.transpose(order))
 
-    # Print model status
-    status_message = status_dict.get(m.status, f"Unknown status ({m.status})")
-    print(f"Model status: {m.status} - {status_message}")
+        # factorization
+        if verbose:
+            eprint("Imposing factorization constraints...")
+        # TODO: use symmetries to reduce constraints
+        for pair in tqdm(utils.maximal_factorizing_pairs(alices), disable=not verbose):
+            indices1 = sorted(pair[0])
+            indices2 = sorted(pair[1])
 
-    if maximize_visibility:
-        return m.objVal
-    else:
-        return m.status
+            m1 = _marginal_on(indices1)
+            m2 = _marginal_on(indices2)
 
-    # if m.status == GRB.OPTIMAL:
-    #     print("\nOptimal solution:")
-    #     sol = np.asarray(Q_infl.x)
-    #     for i in orbits[:,0]:
-    #         val = sol.flat[i]
-    #         if val > 1e-6:
-    #             print(f"Q_infl[{tuple(np.unravel_index(i, inflation_shape))}]: {val}")
-    #     #for v in m.getVars():
-    #         #if v.x > 0:
-    #         #    print(f"{v.varName}: {v.x}")
-    #     print(f"Objective value: {m.objVal}")
-    # elif m.status == gp.GRB.INFEASIBLE:
-    #     """
-    #         Addition to obtain more information about the infeasibility
-    #     """
-    #     print("\nThe model is infeasible. Computing IIS...")
-    #     m.computeIIS()
+            m_total = _marginal_on(indices1 + indices2)
+            m1_r = m1.reshape((d,)*len(indices1) + (1,)*len(indices2))
+            m2_r = m2.reshape((1,)*len(indices1) + (d,)*len(indices2))
 
-    #     print("\n--- IIS Report ---")
-        
-    #     # Print constraints that are part of the IIS
-    #     print("Conflicting constraints:")
-    #     for constr in m.getConstrs():
-    #         if constr.IISConstr:  # True if this constraint is in the IIS
-    #             print(f"  - {constr.ConstrName}")
+            m.addConstr(m1_r * m2_r == m_total)
 
-    #     # Print variables that are part of the IIS
-    #     print("\nConflicting variables:")
-    #     for var in m.getVars():
-    #         if var.IISLB or var.IISUB:  # True if this variable is in the IIS
-    #             print(f"  - {var.varName} (Lower Bound: {var.IISLB}, Upper Bound: {var.IISUB})")
+        # injectable sets
+        if verbose:
+            eprint("Imposing injectable set marginal equalities...")
+        # TODO: use symmetries to reduce constraints
+        maximal = utils.maximal_injectable_sets(alices)
+        for clique in tqdm(maximal, disable=not verbose):
+            m_injectable = _marginal_on(clique)
+            if len(clique) == 3:
+                p_marg = p
+            else:
+                p_marg = marginal_on(p, tuple(range(len(clique))))
+            m.addConstr(m_injectable == p_marg)
+
+        if verbose:
+            eprint("Initiating optimization of the model...")
+        m.optimize()
+
+        # Dictionary to translate status codes
+        status_dict = {
+            GRB.OPTIMAL: "Optimal solution found",
+            GRB.UNBOUNDED: "Model is unbounded",
+            GRB.INFEASIBLE: "Model is infeasible",
+            GRB.INF_OR_UNBD: "Model is infeasible or unbounded",
+            GRB.INTERRUPTED: "Optimization was interrupted",
+            GRB.TIME_LIMIT: "Time limit reached",
+            GRB.SUBOPTIMAL: "Suboptimal solution found",
+            GRB.USER_OBJ_LIMIT: "User objective limit reached",
+            GRB.NUMERIC: "Numerical issues",
+        }
+
+        # Print model status
+        status_message = status_dict.get(m.status, f"Unknown status ({m.status})")
+        print(f"Model status: {m.status} - {status_message}")
+
+        if maximize_visibility:
+            try:
+                obj = m.getObjective()
+                return obj.getValue()
+            except AttributeError:
+                print("No objective found!")
+                return m.status
+        else:
+            return m.status
+
+        # if m.status == GRB.OPTIMAL:
+        #     print("\nOptimal solution:")
+        #     sol = np.asarray(Q_infl.x)
+        #     for i in orbits[:,0]:
+        #         val = sol.flat[i]
+        #         if val > 1e-6:
+        #             print(f"Q_infl[{tuple(np.unravel_index(i, inflation_shape))}]: {val}")
+        #     #for v in m.getVars():
+        #         #if v.x > 0:
+        #         #    print(f"{v.varName}: {v.x}")
+        #     print(f"Objective value: {m.objVal}")
+        # elif m.status == gp.GRB.INFEASIBLE:
+        #     """
+        #         Addition to obtain more information about the infeasibility
+        #     """
+        #     print("\nThe model is infeasible. Computing IIS...")
+        #     m.computeIIS()
+
+        #     print("\n--- IIS Report ---")
+
+        #     # Print constraints that are part of the IIS
+        #     print("Conflicting constraints:")
+        #     for constr in m.getConstrs():
+        #         if constr.IISConstr:  # True if this constraint is in the IIS
+        #             print(f"  - {constr.ConstrName}")
+
+        #     # Print variables that are part of the IIS
+        #     print("\nConflicting variables:")
+        #     for var in m.getVars():
+        #         if var.IISLB or var.IISUB:  # True if this variable is in the IIS
+        #             print(f"  - {var.varName} (Lower Bound: {var.IISLB}, Upper Bound: {var.IISUB})")
 
 
 
@@ -217,9 +199,9 @@ if __name__ == "__main__":
         alices=list_of_Alices(inflation), 
         verbose=0, 
         maximize_visibility=True, 
-        visibility_bounds=(0.3,0.5))
+        visibility_bounds=(0,1))
 
-    print(f"The optimal visibility is {val}")
+    # print(f"The optimal visibility is {val}")
 
     # print(prob_noisy_GHZ(3, 0.5))
 
