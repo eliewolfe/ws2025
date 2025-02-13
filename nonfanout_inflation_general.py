@@ -1,8 +1,9 @@
 import gurobipy as gp
 from gurobipy import GRB
-from itertools import product, repeat
+from itertools import product, repeat, chain
 import numpy as np
 import itertools
+from gphelpers import create_cyclic_symmetric_mVar
 
 time_limit = GRB.INFINITY
 tol = 1e-5
@@ -84,12 +85,21 @@ def nonfanout_inflation(p_ABCXYZ:np.ndarray, nc:int):
         env.start()
         with gp.Model("qcp", env=env) as m:
             def cycle_variables(nc, cardout, cardinp):
-                cardinalities = tuple(repeat(cardout, times=nc)) + tuple(repeat(cardinp, times=nc)) 
-                # Defining the probabilities
-                Q_ = m.addMVar(cardinalities, lb=0, name="Q_")
-                # Normalization
-                for ind in itertools.product(range(cardinp), repeat=nc):
-                    m.addConstr(Q_.sum(axis=(tuple(range(nc))))[ind]==1, "Normalization")
+                # Defining the cyclic-symmetric robabilities
+                combined_d = cardout * cardinp
+                Q_as_ndarray = np.array(create_cyclic_symmetric_mVar(m, combined_d, nc).tolist(), dtype=object)
+                initial_shape = (cardout, cardinp)*nc
+                transposition = tuple(np.argsort(tuple(chain.from_iterable(zip(range(nc), range(nc, 2*nc))))).flat)
+                Q_as_ndarray = Q_as_ndarray.reshape(initial_shape).transpose(transposition)
+                Q_ = gp.MVar.fromlist(Q_as_ndarray)
+                Q_.__name__ = f"Q_{nc}"
+
+                cardinalities = tuple(repeat(cardout, times=nc)) + tuple(repeat(cardinp, times=nc))
+                assert np.array_equal(Q_.shape, cardinalities), f"The shape of the MVar {Q_.shape} does not match the expected shape {cardinalities}"
+                # Q_ = m.addMVar(cardinalities, lb=0, name="Q_")
+                # # Normalization
+                # for ind in itertools.product(range(cardinp), repeat=nc):
+                #     m.addConstr(Q_.sum(axis=(tuple(range(nc))))[ind]==1, "Normalization")
 
                 # Independencies
                 tuplenc = tuple(range(nc))
@@ -98,16 +108,16 @@ def nonfanout_inflation(p_ABCXYZ:np.ndarray, nc:int):
                     for inps in itertools.product(range(cardinp), repeat=nc):
                         m.addConstr(Q_.sum(axis=(1, nc-1))[outs+inps]==Q_.sum(axis=(tuple_0))[(outs[0],)+inps]*Q_.sum(axis=(0,1,nc-1))[tuple(outs[1:(nc-1)])+inps], "Independences")
 
-                # No signaling
+                # No signalling
                 for inp in range(cardinp-1):
-                    m.addConstr(Q_.sum(axis=nc)[...,inp]==Q_.sum(axis=nc)[...,inp+1], "No-signaling")
+                    m.addConstr(Q_.sum(axis=nc)[...,inp]==Q_.sum(axis=nc)[...,inp+1], f"No-signalling {inp} vs {inp+1}")
                 
                 
-                #Cyclic symmetry
-                for ind in generate_tuples(nc, cardout, cardinp):
-                    indperm=cyclic_permute(ind[:(-nc)], shift=-1)+cyclic_permute(ind[(-nc):], shift=-1)
-                    m.addConstr(Q_[ind]==Q_[indperm])
-                # we can speed this up 
+                # #Cyclic symmetry
+                # for ind in generate_tuples(nc, cardout, cardinp):
+                #     indperm=cyclic_permute(ind[:(-nc)], shift=-1)+cyclic_permute(ind[(-nc):], shift=-1)
+                #     m.addConstr(Q_[ind]==Q_[indperm])
+                # # we can speed this up
 
                 return Q_
             
