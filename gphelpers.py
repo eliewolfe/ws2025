@@ -61,6 +61,9 @@ def create_cyclic_symmetric_mVar(m: gp._model.Model,
                                            verbose=verbose)
 
 
+def _test_sorted(indices: Tuple[int,...]) -> bool:
+    return all(indices[i] < indices[i+1] for i in range(len(indices)-1))
+
 
 def gp_project_on(q: gp._matrixapi.MVar,
                   indices: Tuple[int,...]) -> gp._matrixapi.MLinExpr:
@@ -69,28 +72,27 @@ def gp_project_on(q: gp._matrixapi.MVar,
     """
     all_indices = set(range(q.ndim))
     assert all_indices.issuperset(indices), "indices outside of MVar dimensions"
-    assert len(set(indices)) == len(indices), "indices must be unique"
-    assert all(indices[i] < indices[i+1] for i in range(len(indices)-1)), "indices must be sorted"
+    assert _test_sorted(indices), "indices must be sorted"
     to_sum_over = all_indices.difference(indices)
     return q.sum(axis=tuple(to_sum_over))
 
-def gp_marginal_on(m: gp._model.Model,
-                   q: gp._matrixapi.MVar,
-                   indices: Tuple[int,...]) -> gp._matrixapi.MVar:
-    """
-    This returns an MVar associated with the marginal on the given indices.
-    The indices need not be sorted.
-    """
-    sorted_indices = tuple(sorted(indices))
-    projection = gp_project_on(q, sorted_indices)
-    temp_MVar = m.addMVar(shape=tuple(q.shape[i] for i in sorted_indices))
-    m.addConstr(temp_MVar == projection)
-    if np.array_equal(sorted_indices, indices):
-        return temp_MVar
-    else:
-        order = np.argsort(np.argsort(indices))
-        temp_MVar_as_ndarray = np.array(temp_MVar.tolist(), dtype=object)
-        return gp.MVar.fromlist(temp_MVar_as_ndarray.transpose(order))
+# def gp_marginal_on(m: gp._model.Model,
+#                    q: gp._matrixapi.MVar,
+#                    indices: Tuple[int,...]) -> gp._matrixapi.MVar:
+#     """
+#     This returns an MVar associated with the marginal on the given indices.
+#     The indices need not be sorted.
+#     """
+#     sorted_indices = tuple(sorted(indices))
+#     projection = gp_project_on(q, sorted_indices)
+#     temp_MVar = m.addMVar(shape=tuple(q.shape[i] for i in sorted_indices))
+#     m.addConstr(temp_MVar == projection)
+#     if np.array_equal(sorted_indices, indices):
+#         return temp_MVar
+#     else:
+#         order = np.argsort(np.argsort(indices))
+#         temp_MVar_as_ndarray = np.array(temp_MVar.tolist(), dtype=object)
+#         return gp.MVar.fromlist(temp_MVar_as_ndarray.transpose(order))
 
 
 def impose_factorization(m: gp._model.Model,
@@ -105,12 +107,25 @@ def impose_factorization(m: gp._model.Model,
     :param indices2: The indices associated with the other factor
     :return: None
     """
-    m1 = gp_marginal_on(m, q, indices1)
-    m1 = m1.reshape(m1.shape + (1,) * len(indices2))
-    m2 = gp_marginal_on(m, q, indices2)
-    m2 = m2.reshape((1,) * len(indices1) + m2.shape)
-    m_total = gp_marginal_on(m, q, indices1 + indices2)
-    m.addConstr(m1 * m2 == m_total)
+    combined_indices = tuple(sorted(indices1+indices2))
+    where1 = np.isin(combined_indices, indices1)
+    where2 = np.logical_not(where1)
+    assert np.array_equal(where2, np.isin(combined_indices, indices2)), "Sanity check failed"
+    template1 = np.ones(len(combined_indices), dtype=int)
+    template2 = template1.copy()
+    natural_shape_1 = tuple(np.take(q.shape, indices1).flat)
+    natural_shape_2 = tuple(np.take(q.shape, indices2).flat)
+    template1[where1] = natural_shape_1
+    template2[where2] = natural_shape_2
+    shape_1 = tuple(template1.flat)
+    shape_2 = tuple(template2.flat)
+
+    mv1 = m.addMVar(shape=shape_1)
+    m.addConstr(mv1.reshape(natural_shape_1) == gp_project_on(q, indices1))
+    mv2 = m.addMVar(shape=shape_2)
+    m.addConstr(mv2.reshape(natural_shape_2) == gp_project_on(q, indices2))
+    m_combined = gp_project_on(q, combined_indices)
+    m.addConstr(mv1 * mv2 == m_combined)
     return None
 
 
