@@ -2,7 +2,6 @@ import gurobipy as gp
 from gurobipy import GRB
 from itertools import product, repeat
 import numpy as np
-import qutip as qt
 import itertools
 
 time_limit = GRB.INFINITY
@@ -175,29 +174,25 @@ def prob_agree(n: int) -> np.ndarray:
         prob[i, i, i,0,0,0] = 1/n
     return prob
 
+from distlib import prob_all_disagree as prob_all_disagree_no_inputs
+from distlib import prob_twosame as prob_two_agree_no_inputs
 
-prob_disagree = np.zeros((3, 3, 3, 1, 1, 1))
-for i in range(3):
-    prob_disagree[i, (i+1)%3, (i+2)%3,0,0,0] = 1/6
-    prob_disagree[i, (i+2)%3, (i+1)%3,0,0,0] = 1/6
+def prob_all_disagree(n: int) -> np.ndarray:
+    return prob_all_disagree_no_inputs(n).reshape((n, n, n, 1, 1, 1))
 
 def prob_twosame(n: int) -> np.ndarray:
-    prob = np.zeros((n, n, n, 1, 1, 1))
+    return prob_two_agree_no_inputs(n).reshape((n, n, n, 1, 1, 1))
 
-    prob_value=1/(3*(n-1)*n)
-    for i in range(n):
-        for j in range (n):
-            if i!=j:
-                prob[i,i,j,0,0,0]=prob_value
-                prob[i,j,i,0,0,0]=prob_value
-                prob[j,i,i,0,0,0]=prob_value
-    return prob
-# print("\n\nChecking the feasibility of the all-disagree distribution")
-# print(nonfanout_inflation(prob_disagree,5))
 
-    
-print("\n\nChecking the feasibility of the 2 agree")
-print(nonfanout_inflation(prob_twosame(3), 7))
+print("\n\nChecking the feasibility of the all-disagree distribution 3-outcomes")
+print(nonfanout_inflation(prob_all_disagree(3),4))
+
+print("\n\nChecking the feasibility of the all-disagree distribution 4-outcomes")
+print(nonfanout_inflation(prob_all_disagree(4),5))
+
+#
+# print("\n\nChecking the feasibility of the 2 agree")
+# print(nonfanout_inflation(prob_twosame(3), 7))
 
 
 # print("\n\nChecking the feasibility of the noisy-GHZ distribution")

@@ -6,7 +6,6 @@ import itertools
 from tqdm import tqdm
 from orbits import identify_orbits
 import utils
-# from nonfanout_inflation_general import prob_twosame
 from utils import eprint
 
 
@@ -44,11 +43,11 @@ def test_distribution_with_symmetric_fanout(
 
     nof_Alices = len(alices)
     inflation_shape = nof_Alices*(d,)
-    inflation_flat_shape = d**nof_Alices
+    # inflation_flat_shape = d**nof_Alices
     # n = max(max(pair) for pair in alices) + 1
 
 
-    with gp.Env(empty=False, params={'OutputFlag': verbose}) as env, gp.Model(env=env) as m:
+    with gp.Env(empty=False, params={'OutputFlag': bool(verbose)}) as env, gp.Model(env=env) as m:
 
 
         v = m.addVar(lb=visibility_bounds[0], ub=visibility_bounds[1], name="v")
@@ -187,27 +186,21 @@ def test_distribution_with_symmetric_fanout(
 
 
 if __name__ == "__main__":
-    from distlib import prob_agree, prob_noise
+    from distlib import prob_agree, prob_all_disagree
     distribution_for_vis_analysis = prob_agree(2)
 
+    # alices=list_of_Alices(5)
+    # val = test_distribution_with_symmetric_fanout(
+    #     p_obs=distribution_for_vis_analysis,
+    #     alices=alices,
+    #     verbose=0,
+    #     maximize_visibility=True,
+    #     visibility_bounds=(0,1))
+    # print(f"The optimal visibility is {val}")
+
     alices=list_of_Alices(5)
-
-    # print("\n ITERATIONS:")
-    # print(find_solution(outcomes, inflation, 0.01, [0.4, 0.5]))
-    val = test_distribution_with_symmetric_fanout(
-        p_obs=distribution_for_vis_analysis,
+    test_distribution_with_symmetric_fanout(
+        p_obs=prob_all_disagree(4),
         alices=alices,
-        verbose=0, 
-        maximize_visibility=True, 
-        visibility_bounds=(0,1))
-
-    print(f"The optimal visibility is {val}")
-
-    # print(prob_noisy_GHZ(3, 0.5))
-
-    # from sympy import Symbol
-    # p_test = np.empty((2,2,2,2), dtype=object)
-    # for indices in np.ndindex(*p_test.shape):
-    #     p_test[indices] = Symbol(str(indices))
-
-    # print(marginal_on(p_test, (0,2,1)
+        verbose=2,
+        maximize_visibility=False)

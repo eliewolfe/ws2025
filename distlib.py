@@ -1,4 +1,5 @@
 import numpy as np
+import itertools
 
 def prob_noise(n: int) -> np.ndarray:
     prob = np.ones((n, n, n))/n**3
@@ -34,7 +35,7 @@ def prob_twosame(n: int) -> np.ndarray:
                 prob[j,i,i]=prob_value
     return prob
 
-def prob_all_disagree(n:int) -> np.ndarray:
+def prob_all_disagree(n: int) -> np.ndarray:
     prob = np.zeros((n, n, n))
     disagree_events = n*(n-1)*(n-2)
     for (i,j,k) in itertools.permutations(range(n), 3):
