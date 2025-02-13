@@ -16,7 +16,7 @@ def maximal_injectable_sets(alices: List[Tuple[int, int]]) -> List:
   return _all_and_maximal_cliques(_injection_graph(alices), isolate_maximal=True)[1]
 
 
-def maximal_factorizing_pairs(alices: List[Tuple[int, int]]) -> List[Tuple[List, List]]:
+def maximal_factorizing_pairs(alices: List[Tuple[int, int]]) -> List[Tuple[Tuple[int,...], Tuple[int,...]]]:
   #First let's obtain all pairs of factorizing sets, then we'll filter for maximality.
   factorizing_pairs = []
   explored_sets = set()

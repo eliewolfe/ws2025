@@ -1,12 +1,9 @@
 from typing import List, Tuple
 import numpy as np
 import gurobipy as gp
-from gurobipy import GRB
-import itertools 
 from tqdm import tqdm
-from orbits import identify_orbits
-import utils
-from utils import eprint
+from utils import eprint, discover_symmetries, maximal_injectable_sets, maximal_factorizing_pairs
+from gphelpers import create_arbitrary_symmetric_mVar, impose_factorization, gp_project_on, status_dict
 
 
 def marginal_on(p:np.ndarray, indices: tuple) -> np.ndarray:
@@ -18,14 +15,6 @@ def marginal_on(p:np.ndarray, indices: tuple) -> np.ndarray:
     # print("Extra re-arranging:", order
     return temp_arr.transpose(order)
 
-def list_of_Alices(n: int, verbose=2) -> List[Tuple[int,int]]:
-    alices = list(itertools.permutations(range(n), 2))
-    for i in range(n):
-        alices.remove((i, (i-1)%n))
-    if verbose:
-        eprint("List of Alices:", alices)
-    return alices
-
 def test_distribution_with_symmetric_fanout(
     p_obs: np.ndarray, 
     alices:List[Tuple[int,int]], 
@@ -33,23 +22,18 @@ def test_distribution_with_symmetric_fanout(
     maximize_visibility=False,
     visibility_bounds=(0,1)) -> str:
 
-    #Discover symmetry
-    dimensional_symmetry = utils.discover_symmetries(alices)
-
     p_ideal = np.asarray(p_obs)
     assert p_ideal.ndim == 3, "p_obs must be a tripartite probability distibution"
     d = p_ideal.shape[0]
     assert np.array_equiv(p_ideal.shape, d), "all parties must have the same cardinality"
 
-    nof_Alices = len(alices)
-    inflation_shape = nof_Alices*(d,)
+    # nof_Alices = len(alices)
+    # inflation_shape = nof_Alices*(d,)
     # inflation_flat_shape = d**nof_Alices
     # n = max(max(pair) for pair in alices) + 1
 
-
     with gp.Env(empty=False, params={'OutputFlag': bool(verbose)}) as env, gp.Model(env=env) as m:
-
-
+        # Preparing for possible optimization problem
         v = m.addVar(lb=visibility_bounds[0], ub=visibility_bounds[1], name="v")
         noise = np.ones_like(p_ideal)/d**3
         assert noise.sum() == 1, "Noise must sum to 1"
@@ -59,83 +43,50 @@ def test_distribution_with_symmetric_fanout(
         else:
             p = p_ideal
 
+
         # IMPOSE SYMMETRY
-        if len(dimensional_symmetry) == 1:
-            # if the only permutation is the identity, then there is no need to impose symmetry
-            Q_infl = m.addMVar(shape=inflation_shape, lb=0)
-        else:
-            if verbose:
-                eprint("Discovering symmetries of inflation graph probabilities...")
-            Q_infl = np.empty(shape=inflation_shape, dtype=object)
-            orbits = identify_orbits(inflation_shape, dimensional_symmetry, verbose=verbose)
-            Q_infl_raw = m.addMVar(shape=(len(orbits),), lb=0)
-            if verbose:
-                eprint("Constructing symmetric MVar...")
-            for (var, orbit) in tqdm(zip(Q_infl_raw.tolist(), orbits), total=len(orbits), disable=not verbose):
-                Q_infl.flat[orbit] = var
-            m.update()
-            Q_infl = gp.MVar.fromlist(Q_infl)
-            Q_infl.__name__ = "Q_infl"
-
-        def _marginal_on(indices: tuple) -> gp._matrixapi.MVar:
-            """
-            This returns a marginal on the given indices, and respects the order of the indices
-            """
-            temp_mvar = m.addMVar(shape=(d,)*len(indices))
-            all_indices = set(range(nof_Alices))
-            assert all_indices.issuperset(indices), "indices must be in the range 0-2"
-            to_sum_over = all_indices.difference(indices)
-            m.addConstr(temp_mvar == Q_infl.sum(axis=tuple(to_sum_over)))
-            order = np.argsort(indices)
-            as_ndarray = np.array(temp_mvar.tolist(), dtype=object)
-            return gp.MVar.fromlist(as_ndarray.transpose(order))
-
-        # factorization
+        dimensional_symmetry = discover_symmetries(alices)
         if verbose:
-            eprint("Imposing factorization constraints...")
-        # TODO: use symmetries to reduce constraints
-        for pair in tqdm(utils.maximal_factorizing_pairs(alices), disable=not verbose):
-            indices1 = sorted(pair[0])
-            indices2 = sorted(pair[1])
+            eprint("Symmetry group of order: ", len(dimensional_symmetry))
+        Q_infl = create_arbitrary_symmetric_mVar(m, d, dimensional_symmetry, verbose=verbose)
+        Q_infl.__name__ = "Q_infl"
 
-            m1 = _marginal_on(indices1)
-            m2 = _marginal_on(indices2)
 
-            m_total = _marginal_on(indices1 + indices2)
-            m1_r = m1.reshape((d,)*len(indices1) + (1,)*len(indices2))
-            m2_r = m2.reshape((1,)*len(indices1) + (d,)*len(indices2))
+        # IMPOSE FACTORIZATION
+        if verbose:
+            eprint("Imposing factorization quadratic constraints...")
+        factorizations = maximal_factorizing_pairs(alices)
+        for (indices1, indices2) in factorizations:
+            if verbose>=2:
+                interpretation = [tuple(alices[i] for i in indices1), tuple(alices[i] for i in indices2)]
+                eprint(f"Factorization {[indices1, indices2]} corresponding to {interpretation}")
+            impose_factorization(m, Q_infl, indices1, indices2)
 
-            m.addConstr(m1_r * m2_r == m_total)
 
-        # injectable sets
+        # IMPOSE injectable sets
         if verbose:
             eprint("Imposing injectable set marginal equalities...")
         # TODO: use symmetries to reduce constraints
-        maximal = utils.maximal_injectable_sets(alices)
+        maximal = maximal_injectable_sets(alices)
         for clique in tqdm(maximal, disable=not verbose):
-            m_injectable = _marginal_on(clique)
-            if len(clique) == 3:
-                p_marg = p
-            else:
-                p_marg = marginal_on(p, tuple(range(len(clique))))
-            m.addConstr(m_injectable == p_marg)
+            interpretation = tuple(alices[i] for i in clique)
+            try:
+                if verbose>=2:
+                    eprint(f"Imposing injectable set {clique} corresponding to {interpretation}")
+                m_injectable = gp_project_on(Q_infl, clique)
+                if len(clique) == 3:
+                    p_marg = p
+                else:
+                    p_marg = marginal_on(p, tuple(range(len(clique))))
+                m.addConstr(m_injectable == p_marg)
+
+            except AssertionError:
+                eprint(f"!! Failed to impose injectable set {clique} corresponding to {interpretation}")
+
 
         if verbose:
             eprint("Initiating optimization of the model...")
         m.optimize()
-
-        # Dictionary to translate status codes
-        status_dict = {
-            GRB.OPTIMAL: "Optimal solution found",
-            GRB.UNBOUNDED: "Model is unbounded",
-            GRB.INFEASIBLE: "Model is infeasible",
-            GRB.INF_OR_UNBD: "Model is infeasible or unbounded",
-            GRB.INTERRUPTED: "Optimization was interrupted",
-            GRB.TIME_LIMIT: "Time limit reached",
-            GRB.SUBOPTIMAL: "Suboptimal solution found",
-            GRB.USER_OBJ_LIMIT: "User objective limit reached",
-            GRB.NUMERIC: "Numerical issues",
-        }
 
         # Print model status
         status_message = status_dict.get(m.status, f"Unknown status ({m.status})")
@@ -188,19 +139,20 @@ def test_distribution_with_symmetric_fanout(
 if __name__ == "__main__":
     from distlib import prob_agree, prob_all_disagree
     distribution_for_vis_analysis = prob_agree(2)
-
-    # alices=list_of_Alices(5)
-    # val = test_distribution_with_symmetric_fanout(
-    #     p_obs=distribution_for_vis_analysis,
-    #     alices=alices,
-    #     verbose=0,
-    #     maximize_visibility=True,
-    #     visibility_bounds=(0,1))
-    # print(f"The optimal visibility is {val}")
+    from infgraphs import gen_fanout_inflation as list_of_Alices
 
     alices=list_of_Alices(5)
-    test_distribution_with_symmetric_fanout(
-        p_obs=prob_all_disagree(4),
+    val = test_distribution_with_symmetric_fanout(
+        p_obs=distribution_for_vis_analysis,
         alices=alices,
         verbose=2,
-        maximize_visibility=False)
+        maximize_visibility=True,
+        visibility_bounds=(0,1))
+    print(f"The optimal visibility is {val}")
+
+    # alices=list_of_Alices(4)
+    # test_distribution_with_symmetric_fanout(
+    #     p_obs=prob_all_disagree(4),
+    #     alices=alices,
+    #     verbose=2,
+    #     maximize_visibility=False)
