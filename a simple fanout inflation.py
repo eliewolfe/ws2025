@@ -2,7 +2,7 @@ from typing import List, Tuple
 import numpy as np
 import gurobipy as gp
 from tqdm import tqdm
-from utils import eprint, discover_symmetries, maximal_injectable_sets, maximal_factorizing_pairs
+from utils import eprint, discover_symmetries, maximal_injectable_sets_under_symmetry, maximal_factorizing_pairs_under_symmetry
 from gphelpers import create_arbitrary_symmetric_mVar, impose_factorization, gp_project_on, status_dict
 
 
@@ -54,8 +54,10 @@ def test_distribution_with_symmetric_fanout(
 
         # IMPOSE FACTORIZATION
         if verbose:
-            eprint("Imposing factorization quadratic constraints...")
-        factorizations = maximal_factorizing_pairs(alices)
+            eprint("Discovering quadratic factorization relations...")
+        factorizations = maximal_factorizing_pairs_under_symmetry(alices, dimensional_symmetry)
+        if verbose:
+            eprint("Imposing quadratic factorization constraints...")
         for (indices1, indices2) in factorizations:
             interpretation = [tuple(alices[i] for i in indices1), tuple(alices[i] for i in indices2)]
             try:
@@ -70,7 +72,7 @@ def test_distribution_with_symmetric_fanout(
         if verbose:
             eprint("Imposing injectable set marginal equalities...")
         # TODO: use symmetries to reduce constraints
-        maximal = maximal_injectable_sets(alices)
+        maximal = maximal_injectable_sets_under_symmetry(alices, dimensional_symmetry)
         for clique in tqdm(maximal, disable=not verbose):
             interpretation = tuple(alices[i] for i in clique)
             try:

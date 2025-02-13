@@ -12,8 +12,14 @@ def eprint(*args, **kwargs):
     print(*args, file=stderr, **kwargs)
 
 
-def maximal_injectable_sets(alices: List[Tuple[int, int]]) -> List:
+def maximal_injectable_sets(alices: List[Tuple[int, int]]) -> List[Tuple[int,...]]:
   return _all_and_maximal_cliques(_injection_graph(alices), isolate_maximal=True)[1]
+
+def maximal_injectable_sets_under_symmetry(alices: List[Tuple[int, int]],
+                                           symmetry_group: np.ndarray) -> List[Tuple[int,...]]:
+  return _unique_vecs_under_symmetry(
+    maximal_injectable_sets(alices),
+    symmetry_group)
 
 
 def maximal_factorizing_pairs(alices: List[Tuple[int, int]]) -> List[Tuple[Tuple[int,...], Tuple[int,...]]]:
@@ -32,11 +38,18 @@ def maximal_factorizing_pairs(alices: List[Tuple[int, int]]) -> List[Tuple[Tuple
       second_alices = [alices[i] for i in second_set]
       if _factorization_test(first_alices, second_alices):
         factorizing_pairs.append((first_set, second_set))
-  return _hypergraph_full_cleanup(factorizing_pairs)
+  return list(_hypergraph_full_cleanup(factorizing_pairs))
+
+
+def maximal_factorizing_pairs_under_symmetry(alices: List[Tuple[int, int]],
+                                           symmetry_group: np.ndarray) -> List[Tuple[Tuple[int,...], Tuple[int,...]]]:
+  return _unique_factorizations_under_symmetry(
+    maximal_factorizing_pairs(alices),
+    symmetry_group)
+
 
 def discover_symmetries(alices: List[Tuple[int, int]]) -> np.ndarray:
   canonical_order = {pair: i for i, pair in enumerate(alices)}
-  nof_Alices = len(alices)
   flat_indices = tuple(itertools.chain.from_iterable(alices))
   nof_flat_indices = len(flat_indices)
   all_copy_indices = sorted(set(itertools.chain.from_iterable(alices)))
@@ -55,9 +68,37 @@ def discover_symmetries(alices: List[Tuple[int, int]]) -> np.ndarray:
 
 ### PRIVATE FUNCTIONS ###
 
+def _unique_vecs_under_symmetry(vecs: List[Tuple[int,...]], symmetry_group: np.ndarray) -> List[Tuple[int,...]]:
+  pending_list = set(map(tuple, vecs))
+  clean_list = set([])
+  while pending_list:
+    new_vec = pending_list.pop()
+    clean_list.add(new_vec)
+    variants = set(map(tuple, symmetry_group[:,list(new_vec)].tolist()))
+    pending_list.difference_update(variants)
+  return list(clean_list)
+
+def _unique_factorizations_under_symmetry(pairs: List[Tuple[Tuple[int,...],Tuple[int,...]]], symmetry_group: np.ndarray) -> List[Tuple[Tuple[int,...],Tuple[int,...]]]:
+  pending_list = set(pairs.copy())
+  clean_list = set([])
+  while pending_list:
+    new_pair = pending_list.pop()
+    clean_list.add(new_pair)
+    variants = set([])
+    vec1_as_list = list(new_pair[0])
+    vec2_as_list = list(new_pair[1])
+    for perm in symmetry_group:
+      new_vec1 = tuple(perm[vec1_as_list])
+      new_vec2 = tuple(perm[vec2_as_list])
+      variants.add((new_vec1, new_vec2))
+      variants.add((new_vec2, new_vec1))
+    pending_list.difference_update(variants)
+  return list(clean_list)
+
+
 def _all_and_maximal_cliques(adjmat: np.ndarray,
               max_n=0,
-              isolate_maximal=True) -> (List, List):
+              isolate_maximal=True) -> (List[List[int]], List[List[int]]):
   """Based on NetworkX's `enumerate_all_cliques`.
   This version uses native Python sets instead of numpy arrays.
   (Performance comparison needed.)
@@ -101,7 +142,7 @@ def _all_and_maximal_cliques(adjmat: np.ndarray,
         queue.append((new_base, new_cnbrs))
   return all_cliques, maximal_cliques
 
-def _hypergraph_full_cleanup(hypergraph: Set[Tuple[Set, Set]]) -> Set[Tuple[Set, Set]]:
+def _hypergraph_full_cleanup(hypergraph: List[Tuple[Tuple[int,...], Tuple[int,...]]]) -> Set[Tuple[Tuple[int,...], Tuple[int,...]]]:
   hypergraph_copy = set(hypergraph)
   cleaned_hypergraph_copy = hypergraph_copy.copy()
   for dominating_hyperedge in hypergraph_copy:
@@ -129,18 +170,18 @@ def _injection_graph(alices: List[Tuple[int, int]]) -> np.ndarray:
         adjacency[j,i] = True
   return adjacency
 
-def _factorization_test(set0: Set[Tuple[int, int]], set1: Set[Tuple[int, int]]) -> bool:
+def _factorization_test(set0: List[Tuple[int, int]], set1: List[Tuple[int, int]]) -> bool:
   """
   Returns True iff the intersection of the indices of the two sets is empty.
   """
-  indices0 = set([x for xs in set0 for x in xs])
-  indices1 = set([x for xs in set1 for x in xs])
+  indices0 = set(itertools.chain.from_iterable(set0))
+  indices1 = set(itertools.chain.from_iterable(set1))
   return indices0.isdisjoint(indices1)
 
 
 def _factorization_subset(
-  set1:Tuple[Set[Tuple[int, int]], Set[Tuple[int, int]]], 
-  set2:Tuple[Set[Tuple[int, int]], Set[Tuple[int, int]]]) -> bool:
+  set1:Tuple[Tuple[int,...], Tuple[int,...]],
+  set2:Tuple[Tuple[int,...], Tuple[int,...]]) -> bool:
   """
   Check if the pair set2 has elements all of which are subsets of elements of set1.
   """
