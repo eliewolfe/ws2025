@@ -88,7 +88,7 @@ def gp_marginal_on(m: gp._model.Model,
     if np.array_equal(sorted_indices, indices):
         return temp_MVar
     else:
-        order = np.argsort(indices)
+        order = np.argsort(np.argsort(indices))
         temp_MVar_as_ndarray = np.array(temp_MVar.tolist(), dtype=object)
         return gp.MVar.fromlist(temp_MVar_as_ndarray.transpose(order))
 

@@ -57,10 +57,13 @@ def test_distribution_with_symmetric_fanout(
             eprint("Imposing factorization quadratic constraints...")
         factorizations = maximal_factorizing_pairs(alices)
         for (indices1, indices2) in factorizations:
-            if verbose>=2:
-                interpretation = [tuple(alices[i] for i in indices1), tuple(alices[i] for i in indices2)]
-                eprint(f"Factorization {[indices1, indices2]} corresponding to {interpretation}")
-            impose_factorization(m, Q_infl, indices1, indices2)
+            interpretation = [tuple(alices[i] for i in indices1), tuple(alices[i] for i in indices2)]
+            try:
+                impose_factorization(m, Q_infl, indices1, indices2)
+                if verbose>=2:
+                    eprint(f"Factorization {[indices1, indices2]} corresponding to {interpretation}")
+            except AssertionError:
+                eprint(f"!! Failed to impose factorization {[indices1, indices2]} corresponding to {interpretation}")
 
 
         # IMPOSE injectable sets
@@ -71,9 +74,9 @@ def test_distribution_with_symmetric_fanout(
         for clique in tqdm(maximal, disable=not verbose):
             interpretation = tuple(alices[i] for i in clique)
             try:
+                m_injectable = gp_project_on(Q_infl, clique)
                 if verbose>=2:
                     eprint(f"Imposing injectable set {clique} corresponding to {interpretation}")
-                m_injectable = gp_project_on(Q_infl, clique)
                 if len(clique) == 3:
                     p_marg = p
                 else:
