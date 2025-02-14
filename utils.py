@@ -23,21 +23,16 @@ def maximal_injectable_sets_under_symmetry(alices: List[Tuple[int, int]],
 
 
 def maximal_factorizing_pairs(alices: List[Tuple[int, int]]) -> List[Tuple[Tuple[int,...], Tuple[int,...]]]:
-  #First let's obtain all pairs of factorizing sets, then we'll filter for maximality.
+  #First let's obtain all pairs of factorizing sets based on sources, then we'll filter for maximality.
+  factorizing_source_pairs = partitions_with_min_size(alices)
+  canonical_dict = {alice: i for i, alice in enumerate(alices)}
   factorizing_pairs = []
-  explored_sets = set()
-  alice_indices = set(range(len(alices)))
-  for first_set in powerset(sorted(alice_indices)):
-    explored_sets.add(frozenset(first_set))
-    if not first_set:
-      continue
-    first_alices = [alices[i] for i in first_set]
-    for second_set in powerset(sorted(alice_indices.difference(first_set))):
-      if frozenset(second_set) in explored_sets:
-        continue 
-      second_alices = [alices[i] for i in second_set]
-      if _factorization_test(first_alices, second_alices):
-        factorizing_pairs.append((first_set, second_set))
+  for source_partition in factorizing_source_pairs:
+    source_set1 = set(source_partition[0])
+    source_set2 = set(source_partition[1])
+    first_alices_idxs = sorted(canonical_dict[alice] for alice in alices if source_set1.issuperset(alice))
+    second_alices_idxs = sorted(canonical_dict[alice] for alice in alices if source_set2.issuperset(alice))
+    factorizing_pairs.append((tuple(first_alices_idxs), tuple(second_alices_idxs)))
   return list(_hypergraph_full_cleanup(factorizing_pairs))
 
 
@@ -67,6 +62,25 @@ def discover_symmetries(alices: List[Tuple[int, int]]) -> np.ndarray:
 
 
 ### PRIVATE FUNCTIONS ###
+
+def partitions_with_min_size(alices: List[Tuple[int, int]], min_size=2):
+  """
+  Obtain all orderless partitions where both partitions have at least `min_size` elements.
+  WLOG, the first partition will be the one with the zero element.
+  """
+  range_set = set(itertools.chain.from_iterable(alices))
+  first_element = range_set.pop()
+  pairs = []
+  for size1 in range(min_size-1, len(range_set) - min_size + 1):
+    for subset1 in itertools.combinations(range_set, size1):
+      subset1 = set(subset1)
+      subset1.add(first_element)
+      remaining_elements = range_set.difference(subset1)
+      for size2 in range(min_size, len(remaining_elements) + 1):
+        for subset2 in itertools.combinations(remaining_elements, size2):
+          pairs.append((subset1, subset2))
+  return pairs
+
 
 def _unique_vecs_under_symmetry(vecs: List[Tuple[int,...]], symmetry_group: np.ndarray) -> List[Tuple[int,...]]:
   pending_list = set(map(tuple, vecs))
