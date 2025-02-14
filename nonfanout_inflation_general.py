@@ -9,13 +9,6 @@ time_limit = GRB.INFINITY
 tol = 1e-5
 return_dist = True
 print_model = True
-
-
-def cyclic_permute(vec, shift=1):
-    # For a left rotation by `shift` positions.
-    n = len(vec)
-    shift %= n  # Handle shifts greater than the length
-    return vec[shift:] + vec[:shift]
     
 
 def generate_tuples(n, inp, out):
@@ -32,48 +25,6 @@ def generate_tuples(n, inp, out):
     
     return all_tuples
 
-# def cycle_variables(nc, cardout, cardinp):
-#     cardinalities = tuple(repeat(cardout, times=nc)) + tuple(repeat(cardinp, times=nc)) 
-#     print("card", cardinalities)
-#     cardinalities_sum_2_N = tuple(repeat(cardout, times=nc-2)) + tuple(repeat(cardinp, times=nc-2)) 
-    
-#     with (gp.Env(empty=True) as env):
-#         env.start()
-#         with gp.Model("qcp", env=env) as m:
-#             # Defining the probabilities
-#             Q_ = m.addMVar(cardinalities, lb=0, name="Q_")
-#             # Normalization
-#             for ind in itertools.product(range(cardinp), repeat=nc):
-#                 m.addConstr(Q_.sum(axis=(tuple(range(nc))))[ind]==1, "Normalization")
-
-
-#             # Independencies
-#             tuplenc = tuple(range(nc))
-#             tuple_0 = tuple(np.delete(tuplenc,0))
-#             for outs in itertools.product(range(cardout), repeat=nc-2):
-#                 for inps in itertools.product(range(cardinp), repeat=nc):
-#                     m.addConstr(Q_.sum(axis=(1, nc-1))[outs+inps]==Q_.sum(axis=(tuple_0))[(outs[0],)+inps]*Q_.sum(axis=(0,1,nc-1))[tuple(outs[1:(nc-1)])+inps], "Independences")
-
-#             # # No signaling
-#             # for p in range(nc):
-#             #     for ind in itertools.product(range(cardinp), repeat=nc-1):
-#             #         for i in range(cardinp-1):
-#             #             selected_inp = ind[0:p]+(i,)+ind[p:nc]
-#             #             selected_inp_2 = ind[0:p]+(i+1,)+ind[p:nc]
-#             #             m.addConstr(Q_.sum(axis=p)[...,selected_inp]==Q_.sum(axis=p)[...,selected_inp_2], "No-signaling")
-            
-#             # No signaling
-#             for inp in range(cardinp-1):
-#                 m.addConstr(Q_.sum(axis=nc)[...,inp]==Q_.sum(axis=nc)[...,inp+1], "No-signaling")
-            
-            
-#             #Cyclic symmetry
-#             for ind in generate_tuples(nc, cardout, cardinp):
-#                 indperm=cyclic_permute(ind[:(-nc)], shift=-1)+cyclic_permute(ind[(-nc):], shift=-1)
-#                 m.addConstr(Q_[ind]==Q_[indperm])
-            
-
-#     return Q_
 
 def nonfanout_inflation(p_ABCXYZ:np.ndarray, nc:int):
     (cardA, cardB, cardC, cardX, cardY, cardZ) = p_ABCXYZ.shape 
@@ -96,10 +47,6 @@ def nonfanout_inflation(p_ABCXYZ:np.ndarray, nc:int):
 
                 cardinalities = tuple(repeat(cardout, times=nc)) + tuple(repeat(cardinp, times=nc))
                 assert np.array_equal(Q_.shape, cardinalities), f"The shape of the MVar {Q_.shape} does not match the expected shape {cardinalities}"
-                # Q_ = m.addMVar(cardinalities, lb=0, name="Q_")
-                # # Normalization
-                # for ind in itertools.product(range(cardinp), repeat=nc):
-                #     m.addConstr(Q_.sum(axis=(tuple(range(nc))))[ind]==1, "Normalization")
 
                 # Independencies
                 tuplenc = tuple(range(nc))
@@ -111,26 +58,12 @@ def nonfanout_inflation(p_ABCXYZ:np.ndarray, nc:int):
                 # No signalling
                 for inp in range(cardinp-1):
                     m.addConstr(Q_.sum(axis=nc)[...,inp]==Q_.sum(axis=nc)[...,inp+1], f"No-signalling {inp} vs {inp+1}")
-                
-                
-                # #Cyclic symmetry
-                # for ind in generate_tuples(nc, cardout, cardinp):
-                #     indperm=cyclic_permute(ind[:(-nc)], shift=-1)+cyclic_permute(ind[(-nc):], shift=-1)
-                #     m.addConstr(Q_[ind]==Q_[indperm])
-                # # we can speed this up
+
 
                 return Q_
             
             # Define the probabilities
             Qs = [cycle_variables(nc=4+l, cardout=cardA, cardinp=cardX) for l in range(nc-3)]
-            # for l in range(nc-3):
-            #     card_Qtemp = tuple(repeat(cardA, times=l+4)) + tuple(repeat(cardX, times=l+4))
-            #     Qtemp = m.addMVar(card_Qtemp, lb=0, name="Q")
-            #     Qs.append(Qtemp)
-            
-            # for l in range(nc-3):
-            #     Qs.append
-            #     m.addConstr((Qs[l])[...]==cycle_variables(nc=4+l, cardout=cardA, cardinp=cardX), "Variables")
 
 
             # Injectable sets

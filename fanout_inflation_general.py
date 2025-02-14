@@ -141,18 +141,18 @@ if __name__ == "__main__":
     distribution_for_vis_analysis = prob_agree(2)
     from infgraphs import gen_fanout_inflation as list_of_Alices
 
-    alices=list_of_Alices(5)
-    val = test_distribution_with_symmetric_fanout(
-        p_obs=distribution_for_vis_analysis,
-        alices=alices,
-        verbose=2,
-        maximize_visibility=True,
-        visibility_bounds=(0,1))
-    print(f"The optimal visibility is {val}")
-
-    # alices=list_of_Alices(4)
-    # test_distribution_with_symmetric_fanout(
-    #     p_obs=prob_all_disagree(4),
+    # alices=list_of_Alices(5)
+    # val = test_distribution_with_symmetric_fanout(
+    #     p_obs=distribution_for_vis_analysis,
     #     alices=alices,
     #     verbose=2,
-    #     maximize_visibility=False)
+    #     maximize_visibility=True,
+    #     visibility_bounds=(0,1))
+    # print(f"The optimal visibility is {val}")
+
+    alices=list_of_Alices(5)
+    test_distribution_with_symmetric_fanout(
+        p_obs=prob_all_disagree(4),
+        alices=alices,
+        verbose=2,
+        maximize_visibility=False)
