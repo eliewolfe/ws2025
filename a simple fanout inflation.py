@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import numpy as np
 import gurobipy as gp
 from tqdm import tqdm
@@ -20,17 +20,12 @@ def test_distribution_with_symmetric_fanout(
     alices:List[Tuple[int,int]], 
     verbose=2,
     maximize_visibility=False,
-    visibility_bounds=(0,1)) -> str:
+    visibility_bounds=(0,1)) -> Union[str, float]:
 
     p_ideal = np.asarray(p_obs)
     assert p_ideal.ndim == 3, "p_obs must be a tripartite probability distibution"
     d = p_ideal.shape[0]
     assert np.array_equiv(p_ideal.shape, d), "all parties must have the same cardinality"
-
-    # nof_Alices = len(alices)
-    # inflation_shape = nof_Alices*(d,)
-    # inflation_flat_shape = d**nof_Alices
-    # n = max(max(pair) for pair in alices) + 1
 
     with gp.Env(empty=False, params={'OutputFlag': bool(verbose)}) as env, gp.Model(env=env) as m:
         # Preparing for possible optimization problem
