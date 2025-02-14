@@ -86,7 +86,7 @@ def _unique_vecs_under_symmetry(vecs: List[Tuple[int,...]], symmetry_group: np.n
   while pending_list:
     new_vec = pending_list.pop()
     clean_list.add(new_vec)
-    variants = set(map(tuple, symmetry_group[:,list(new_vec)].tolist()))
+    variants = set(tuple(sorted(variant)) for variant in symmetry_group[:,list(new_vec)].tolist())
     pending_list.difference_update(variants)
   return list(clean_list)
 
@@ -100,8 +100,8 @@ def _unique_factorizations_under_symmetry(pairs: List[Tuple[Tuple[int,...],Tuple
     vec1_as_list = list(new_pair[0])
     vec2_as_list = list(new_pair[1])
     for perm in symmetry_group:
-      new_vec1 = tuple(perm[vec1_as_list])
-      new_vec2 = tuple(perm[vec2_as_list])
+      new_vec1 = tuple(sorted(perm[vec1_as_list].tolist()))
+      new_vec2 = tuple(sorted(perm[vec2_as_list].tolist()))
       variants.add((new_vec1, new_vec2))
       variants.add((new_vec2, new_vec1))
     pending_list.difference_update(variants)
