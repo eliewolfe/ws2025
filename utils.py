@@ -76,9 +76,7 @@ def partitions_with_min_size(alices: List[Tuple[int, int]], min_size=2):
       subset1 = set(subset1)
       subset1.add(first_element)
       remaining_elements = range_set.difference(subset1)
-      for size2 in range(min_size, len(remaining_elements) + 1):
-        for subset2 in itertools.combinations(remaining_elements, size2):
-          pairs.append((subset1, subset2))
+      pairs.append((subset1, remaining_elements))
   return pairs
 
 
