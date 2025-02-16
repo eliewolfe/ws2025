@@ -3,7 +3,6 @@ from typing import List, Tuple, Set
 import itertools
 from collections import deque
 import numpy as np
-from more_itertools import powerset
 from sys import stderr
 from operator import itemgetter
 ### PUBLIC FUNCTIONS ###
@@ -181,14 +180,6 @@ def _injection_graph(alices: List[Tuple[int, int]]) -> np.ndarray:
         adjacency[i,j] = True
         adjacency[j,i] = True
   return adjacency
-
-def _factorization_test(set0: List[Tuple[int, int]], set1: List[Tuple[int, int]]) -> bool:
-  """
-  Returns True iff the intersection of the indices of the two sets is empty.
-  """
-  indices0 = set(itertools.chain.from_iterable(set0))
-  indices1 = set(itertools.chain.from_iterable(set1))
-  return indices0.isdisjoint(indices1)
 
 
 def _factorization_subset(
