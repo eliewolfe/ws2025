@@ -1,8 +1,9 @@
-from typing import List, Tuple
+from typing import Tuple
 import numpy as np
 import gurobipy as gp
 from utils import eprint
 from orbits import identify_orbits
+from gc import collect
 from tqdm import tqdm
 
 def create_arbitrary_symmetric_mVar(m: gp._model.Model,
@@ -31,6 +32,9 @@ def create_arbitrary_symmetric_mVar(m: gp._model.Model,
             eprint("Discovering symmetries of inflation graph probabilities...")
         this_MVar_as_ndarray = np.empty(shape=flat_shape, dtype=object)
         orbits = identify_orbits(mvar_shape, symmetry_group, verbose=verbose)
+        if verbose>=2:
+            eprint("Number of orbits identified:", len(orbits))
+        collect(generation=2)
         raw_MVar = m.addMVar(shape=(len(orbits),), lb=0)
         if verbose:
             eprint("Constructing symmetric MVar...")
