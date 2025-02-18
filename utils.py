@@ -106,7 +106,7 @@ def _all_and_maximal_cliques(adjmat: np.ndarray,
         queue.append((new_base, new_cnbrs))
   return all_cliques, maximal_cliques
 
-def _hypergraph_full_cleanup(hypergraph: List[Tuple[Tuple[int,...], Tuple[int,...]]]) -> Set[Tuple[Tuple[int,...], Tuple[int,...]]]:
+def _factorizations_full_cleanup(hypergraph: List[Tuple[Tuple[int,...], Tuple[int,...]]]) -> Set[Tuple[Tuple[int,...], Tuple[int,...]]]:
   hypergraph_copy = set(hypergraph)
   cleaned_hypergraph_copy = hypergraph_copy.copy()
   for dominating_hyperedge in hypergraph_copy:
@@ -120,6 +120,20 @@ def _hypergraph_full_cleanup(hypergraph: List[Tuple[Tuple[int,...], Tuple[int,..
         if tuple(reversed(dominated_hyperedge)) == dominating_hyperedge:
           continue
         dominated_hyperedges.append(dominated_hyperedge)
+      cleaned_hypergraph_copy.difference_update(dominated_hyperedges)
+  return cleaned_hypergraph_copy
+
+def _hypergraph_full_cleanup(hypergraph: List[Tuple[int,...]]) -> Set[Tuple[int,...]]:
+  hypergraph_copy = set(hypergraph)
+  cleaned_hypergraph_copy = hypergraph_copy.copy()
+  for dominating_hyperedge in hypergraph_copy:
+    if dominating_hyperedge in cleaned_hypergraph_copy:
+      dominating_hyperedge_as_set = set(dominating_hyperedge)
+      dominated_hyperedges = []
+      for dominated_hyperedge in cleaned_hypergraph_copy:
+        if len(dominated_hyperedge) < len(dominating_hyperedge):
+          if dominating_hyperedge_as_set.issuperset(dominated_hyperedge):
+            dominated_hyperedges.append(dominated_hyperedge)
       cleaned_hypergraph_copy.difference_update(dominated_hyperedges)
   return cleaned_hypergraph_copy
 

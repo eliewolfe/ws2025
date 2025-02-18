@@ -42,7 +42,7 @@ def identify_orbits(tensor_shape: Tuple, symmetry_group: np.ndarray, verbose=2) 
     paradigm = np.arange(total_elements, dtype=np_dtype).reshape(tensor_shape)
     alternatives = np.empty(shape=(n_nontrivial_perms, total_elements), dtype=np_dtype)
     if verbose >= 2:
-        print("Now exploring the consequences of the permutations")
+        eprint("Now exploring the consequences of the permutations")
     for i, perm in tqdm(
         enumerate(all_perms), 
         total=n_nontrivial_perms,
@@ -53,7 +53,7 @@ def identify_orbits(tensor_shape: Tuple, symmetry_group: np.ndarray, verbose=2) 
     # Picklist computation assumes that the permutation is a derangement
     picklist = np.all(paradigm.reshape(-1) <= alternatives, axis=0)
     if verbose >= 2:
-        print("Picklist identified, now compressing and stacking.")
+        eprint("Picklist identified, now compressing and stacking.")
     nof_orbits = np.count_nonzero(picklist)
     orbits = np.empty(shape=(n_nontrivial_perms+1, nof_orbits), dtype=np_dtype)
     orbits[0] = paradigm.reshape(-1)[picklist]

@@ -3,18 +3,16 @@ import numpy as np
 import gurobipy as gp
 from tqdm import tqdm
 from utils import eprint
-from gphelpers import create_arbitrary_symmetric_mVar, impose_factorization, gp_project_on, status_dict
+from gphelpers import (create_arbitrary_symmetric_mVar,
+                       impose_factorization,
+                       gp_project_on,
+                       status_dict,
+                       marginal_on,
+                       impose_semi_factorization)
 from infgraphs import InfGraph, Alices
 from distlib import prob_noise
 
-def marginal_on(p:np.ndarray, indices: tuple) -> np.ndarray:
-    set3 = set(range(p.ndim))
-    assert set3.issuperset(indices), "indices must be in the range 0-2"
-    to_sum_over = set3.difference(indices)
-    temp_arr = np.asarray(p).sum(axis=tuple(to_sum_over))
-    order = tuple(np.argsort(indices))
-    # print("Extra re-arranging:", order
-    return temp_arr.transpose(order)
+
 
 class InfGraphOptimizer(InfGraph):
     def __init__(self, alices: Alices,
@@ -27,6 +25,10 @@ class InfGraphOptimizer(InfGraph):
         self.lp = not go_nonlinear
         self.env = gp.Env(empty=False, params={'OutputFlag': bool(verbose)})
         self.m = gp.Model(env=self.env)
+        if self.lp:
+            self.m.Params.NonConvex = 0
+        else:
+            self.m.Params.NonConvex = -1
 
         #Initiate dummy distribution and no-optimization status
         self.p = prob_noise(self.d)
@@ -43,17 +45,18 @@ class InfGraphOptimizer(InfGraph):
         # IMPOSE FACTORIZATION
         if verbose:
             eprint("Discovering quadratic factorization relations...")
-        factorizations = self.maximal_factorizing_pairs_under_symmetry
-        if verbose:
-            eprint("Imposing quadratic factorization constraints...")
-        for (indices1, indices2) in factorizations:
-            interpretation = [tuple(alices[i] for i in indices1), tuple(alices[i] for i in indices2)]
-            try:
-                impose_factorization(self.m, self.Q_infl, indices1, indices2)
-                if verbose>=2:
-                    eprint(f"Factorization {[indices1, indices2]} corresponding to {interpretation}")
-            except AssertionError:
-                eprint(f"!! Failed to impose factorization {[indices1, indices2]} corresponding to {interpretation}")
+        factorizations = self.maximal_non_semiexpressible_pairs_under_symmetry
+        if not self.lp:
+            if verbose:
+                eprint("Imposing quadratic factorization constraints...")
+            for (indices1, indices2) in factorizations:
+                interpretation = [tuple(alices[i] for i in indices1), tuple(alices[i] for i in indices2)]
+                try:
+                    impose_factorization(self.m, self.Q_infl, indices1, indices2)
+                    if verbose>=2:
+                        eprint(f"Factorization {[indices1, indices2]} corresponding to {interpretation}")
+                except AssertionError:
+                    eprint(f"!! Failed to impose factorization {[indices1, indices2]} corresponding to {interpretation}")
 
 
     def test_distribution(self, p_ideal: np.ndarray,
@@ -62,6 +65,7 @@ class InfGraphOptimizer(InfGraph):
         assert p_ideal.ndim == 3, "p_obs must be a tripartite probability distibution"
         assert np.array_equiv(p_ideal.shape, self.d), f"All parties must have cardinality {self.d}"
         if maximize_visibility:
+            assert not self.lp, "Nonlinear optimization is required for visibility maximization."
             v = self.m.addVar(lb=visibility_bounds[0], ub=visibility_bounds[1], name="v")
             noise = np.ones_like(p_ideal)/self.d**3
             self.m.setObjective(v, sense=gp.GRB.MAXIMIZE)
@@ -69,11 +73,11 @@ class InfGraphOptimizer(InfGraph):
         else:
             self.p = p_ideal
 
+
         # IMPOSE injectable sets
         if self.verbose:
             eprint("Imposing injectable set marginal equalities...")
-        # TODO: use symmetries to reduce constraints
-        maximal = self.maximal_injectable_sets_under_symmetry
+        maximal = self.maximal_injectable_but_not_semi_expressible_under_symmetry
         for clique in tqdm(maximal, disable=not self.verbose):
             interpretation = tuple(alices[i] for i in clique)
             try:
@@ -87,6 +91,21 @@ class InfGraphOptimizer(InfGraph):
                 self.m.addConstr(m_injectable == p_marg)
             except AssertionError:
                 eprint(f"!! Failed to impose injectable set {clique} corresponding to {interpretation}")
+
+        #IMPOSE semi-expressible sets
+        if self.verbose:
+            eprint("Imposing semi-expressible set factorization equalities...")
+        semiexpressible_sets = self.maximal_semiexpressible_sets_under_symmetry
+        for (indices1, indices2) in semiexpressible_sets:
+            interpretation = [tuple(alices[i] for i in indices1), tuple(alices[i] for i in indices2)]
+            is_expressible = (indices2 in self.all_injectable_sets)
+            impose_semi_factorization(self.m, self.Q_infl, self.p, indices1, indices2, expressible=is_expressible)
+            if self.verbose >= 2:
+                if is_expressible:
+                    eprint(f"Expressible set {[indices1, indices2]} corresponding to {interpretation}")
+                else:
+                    eprint(f"Semi-expressible set {[indices1, indices2]} corresponding to {interpretation}")
+
 
         if self.verbose:
             eprint("Initiating optimization of the model...")
@@ -119,12 +138,12 @@ if __name__ == "__main__":
     distribution_for_vis_analysis = prob_agree(2)
     from infgraphs import gen_fanout_inflation
 
-    alices=gen_fanout_inflation(5)
-    InfGraph52 = InfGraphOptimizer(alices, d=2, verbose=2)
-    optimal_vsi = InfGraph52.test_distribution(prob_agree(2),
-                                 maximize_visibility=True)
-    print(f"The optimal visibility is {optimal_vsi}")
-    InfGraph52.close()
+    # alices=gen_fanout_inflation(5)
+    # InfGraph52 = InfGraphOptimizer(alices, d=2, verbose=2, go_nonlinear=False)
+    # optimal_vsi = InfGraph52.test_distribution(prob_agree(2),
+    #                              maximize_visibility=True)
+    # print(f"The optimal visibility is {optimal_vsi}")
+    # InfGraph52.close()
 
     # alices=list_of_Alices(5)
     # val = test_distribution_with_symmetric_fanout(
@@ -135,6 +154,7 @@ if __name__ == "__main__":
     #     visibility_bounds=(0,1))
     # print(f"The optimal visibility is {val}")
 
-    # alices=list_of_Alices(5)
-    # InfGraph54 = InfGraphOptimizer(alices, d=4, verbose=2)
-    # InfGraph54.test_distribution(prob_all_disagree(4))
+    alices=gen_fanout_inflation(5)
+    InfGraph54 = InfGraphOptimizer(alices, d=4, verbose=2, go_nonlinear=False)
+    InfGraph54.test_distribution(prob_all_disagree(4))
+    InfGraph54.close()
