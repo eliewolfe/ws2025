@@ -78,7 +78,6 @@ def partitions_with_min_size(alices: List[Tuple[int, int]], min_size=2):
       pairs.append((subset1, remaining_elements))
   return pairs
 
-
 def _unique_vecs_under_symmetry(vecs: List[Tuple[int,...]], symmetry_group: np.ndarray) -> List[Tuple[int,...]]:
   pending_list = set(map(tuple, vecs))
   clean_list = set([])
@@ -105,7 +104,6 @@ def _unique_factorizations_under_symmetry(pairs: List[Tuple[Tuple[int,...],Tuple
       variants.add((new_vec2, new_vec1))
     pending_list.difference_update(variants)
   return list(clean_list)
-
 
 def _all_and_maximal_cliques(adjmat: np.ndarray,
               max_n=0,

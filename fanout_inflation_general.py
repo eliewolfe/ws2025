@@ -6,7 +6,12 @@ from utils import eprint
 from gphelpers import create_arbitrary_symmetric_mVar, impose_factorization, gp_project_on, status_dict
 from infgraphs import InfGraph, Alices
 from distlib import prob_noise
+from enum import Enum
 
+class IGO(Enum):
+    MAXIMIZE_DIFFERENCE = 1
+    MAXIMIZE_MINIMUM = 2
+    
 def marginal_on(p:np.ndarray, indices: tuple) -> np.ndarray:
     set3 = set(range(p.ndim))
     assert set3.issuperset(indices), "indices must be in the range 0-2"
@@ -56,18 +61,53 @@ class InfGraphOptimizer(InfGraph):
                 eprint(f"!! Failed to impose factorization {[indices1, indices2]} corresponding to {interpretation}")
 
 
-    def test_distribution(self, p_ideal: np.ndarray,
+    def test_distribution(self, *p_ideal: np.ndarray,
+                          lbs=0,
+                          ubs=1,
+                          objective=IGO.MAXIMIZE_MINIMUM,
+                          probe_support=False,
                           maximize_visibility=False,
                           visibility_bounds=(0,1)) -> Union[str, float]:
-        assert p_ideal.ndim == 3, "p_obs must be a tripartite probability distibution"
-        assert np.array_equiv(p_ideal.shape, self.d), f"All parties must have cardinality {self.d}"
+        for i in range(dlen):
+            assert p_ideal[i].ndim == 3, f"{i}th dist: p_obs must be a tripartite probability distibution"
+            assert np.array_equiv(p_ideal[i].shape, self.d), f"{i}th dist: All parties must have cardinality {self.d}"
+        
+        self.p = p_ideal[0]
+        dlen = dlen
+        if dlen > 1:
+            try:
+                assert len(lbs) == dlen, "The number of lower bounds should match the number of given probability distributions"
+            except TypeError:
+                continue 
+            
+            try:
+                assert len(ubs) == dlen, "The number of lower bounds should match the number of given probability distributions"
+            except TypeError:
+                continue 
+            
+            # initialize weights (normalized)
+            # TODO: print this at the end
+            w = self.m.addMVar(shape=(dlen,), lb=lbs, ub=ubs, name="weights")
+            m.addConstr(w.sum() == 1)
+            
+            wlist = w.tolist()
+            match objective:
+                case IGO.MAXIMIZE_DIFFERENCE:
+                    def find_min_diff(mv: gp._matrixapi.MVar) -> float:
+                        mv_sorted = np.sort(mv)
+                        diffs = list(map(lambda i: mv_sorted[i+1]-mv_sorted[i], range(dlen-1)))
+                        return np.min(diffs)
+                    
+                    self.m.setObjective(find_min_diff(w), sense=gp.GRB.MAXIMIZE)
+                case IGO.MAXIMIZE_MINIMUM:
+                    self.m.setObjective(np.min(wlist), sense=gp.GRB.MAXIMIZE)
+
+            self.p = np.sum(wlist[i] * p_ideal[i] for i in range(dlen))
         if maximize_visibility:
             v = self.m.addVar(lb=visibility_bounds[0], ub=visibility_bounds[1], name="v")
-            noise = np.ones_like(p_ideal)/self.d**3
+            noise = np.ones_like(self.p)/self.d**3
             self.m.setObjective(v, sense=gp.GRB.MAXIMIZE)
-            self.p = p_ideal * v + noise * (1-v)
-        else:
-            self.p = p_ideal
+            self.p = self.p * v + noise * (1-v)
 
         # IMPOSE injectable sets
         if self.verbose:
@@ -100,6 +140,8 @@ class InfGraphOptimizer(InfGraph):
         if maximize_visibility:
             try:
                 obj = self.m.getObjective()
+                if dlen > 1:
+                    return obj.getValue(), np.asarray(w.x)
                 return obj.getValue()
             except AttributeError:
                 print("No objective found!")
