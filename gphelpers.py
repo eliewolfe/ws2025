@@ -166,7 +166,6 @@ def impose_semi_factorization(m: gp._model.Model,
         m.addConstr(mv2.reshape(natural_shape_2) == gp_project_on(q, indices2))
     m_combined = gp_project_on(q, combined_indices)
     LHS = mv1 * mv2
-    print(f"Debugging: Is expressible? {expressible}, {type(LHS)}, {LHS.shape}, {type(m_combined)}, {m_combined.shape}")
     m.addConstr(LHS == m_combined)
     return None
 
