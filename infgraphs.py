@@ -35,8 +35,8 @@ class InfGraph:
         (self.all_injectable_sets, self.maximal_injectable_sets) = _all_and_maximal_cliques(
             self.injection_graph,
             isolate_maximal=True)
-        self.all_injectable_sets = list(map(tuple, self.all_injectable_sets))
-        self.maximal_injectable_sets = list(map(tuple, self.maximal_injectable_sets))
+        self.all_injectable_sets = self.injectable_sets_cleanup(self.all_injectable_sets)
+        self.maximal_injectable_sets = self.injectable_sets_cleanup(self.maximal_injectable_sets)
         self.maximal_injectable_sets_under_symmetry = _unique_vecs_under_symmetry(self.maximal_injectable_sets,
                                                                                   self.symmetry_group)
 
@@ -55,6 +55,25 @@ class InfGraph:
                     adjacency[i, j] = True
                     adjacency[j, i] = True
         return adjacency
+
+    def injectable_set_cleanup(self, injectable_set: Indices) -> Indices:
+        i = 1
+        injectable_list = list(injectable_set)
+        while i < len(injectable_list):
+            bob_idx = injectable_list[i]
+            alice_idx = injectable_list[i-1]
+            bob = self.alices[bob_idx]
+            alice = self.alices[alice_idx]
+            if alice[1] != bob[0] and alice[0] == bob[1]:
+                injectable_list[i] = alice_idx
+                injectable_list[i-1] = bob_idx
+            else:
+                i+=1
+        return tuple(injectable_list)
+
+    def injectable_sets_cleanup(self, injectable_sets: List[Indices]) -> List[Indices]:
+        return [self.injectable_set_cleanup(injectable_set) for injectable_set in injectable_sets]
+
 
     @cached_property
     def symmetry_group(self) -> np.ndarray:
@@ -111,8 +130,8 @@ class InfGraph:
 
     @cached_property
     def maximal_non_semiexpressible_pairs(self) -> List[Tuple[Indices, Indices]]:
-        to_filter_out = set(self.maximal_semiexpressible_sets)
-        to_filter_out.update([tuple(reversed(pair)) for pair in self.maximal_semiexpressible_sets])
+        to_filter_out = set((tuple(sorted(inj)), noninj) for (inj, noninj) in self.maximal_semiexpressible_sets)
+        to_filter_out.update([tuple(reversed(pair)) for pair in to_filter_out])
         return list(set(self.maximal_factorizing_pairs).difference(to_filter_out))
 
     @cached_property
@@ -136,6 +155,21 @@ class InfGraph:
 
 
 if __name__ == "__main__":
-    print(gen_fanout_inflation(4))
+    print("Test fanout 4:", gen_fanout_inflation(4))
+    print("Test nonfanout 5:", gen_nonfanout_inflation(5))
 
-    print(gen_nonfanout_inflation(5))
+
+    alices = gen_fanout_inflation(5)
+    test = InfGraph(alices)
+    print(test)
+    for injectable_set in test.maximal_injectable_but_not_semi_expressible_under_symmetry:
+        interpretation = tuple(alices[i] for i in injectable_set)
+        print(f"Injectable set {injectable_set} corresponding to {interpretation}")
+    semiexpressible_sets = test.maximal_semiexpressible_sets_under_symmetry
+    for (indices1, indices2) in semiexpressible_sets:
+        interpretation = [tuple(alices[i] for i in indices1), tuple(alices[i] for i in indices2)]
+        is_expressible = (indices2 in test.all_injectable_sets)
+        if is_expressible:
+            print(f"Expressible set {[indices1, indices2]} corresponding to {interpretation}")
+        else:
+            print(f"Semi-expressible set {[indices1, indices2]} corresponding to {interpretation}")
