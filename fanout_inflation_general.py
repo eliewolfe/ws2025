@@ -2,6 +2,7 @@ from typing import List, Tuple, Union
 import numpy as np
 import gurobipy as gp
 from tqdm import tqdm
+from itertools import combinations
 from utils import eprint
 from gphelpers import (create_arbitrary_symmetric_mVar,
                        impose_factorization,
@@ -87,13 +88,15 @@ class InfGraphOptimizer(InfGraph):
         if dlen > 1:
             try:
                 assert len(lbs) == dlen, "The number of lower bounds should match the number of given probability distributions"
+                min_lb = np.min(lbs)
             except TypeError:
-                pass 
+                min_lb = lbs
             
             try:
                 assert len(ubs) == dlen, "The number of lower bounds should match the number of given probability distributions"
+                min_ub = np.min(ubs)
             except TypeError:
-                pass 
+                min_ub = ubs
             
             # initialize weights (normalized)
             # TODO: print this at the end
@@ -101,20 +104,28 @@ class InfGraphOptimizer(InfGraph):
             self.m.addConstr(w.sum() == 1)
             
             wlist = w.tolist()
+            wmin = self.m.addVar(lb=min_lb, ub=min_ub)
+            self.m.addGenConstrMin(wmin, wlist)
             match objective:
                 case IGO.MAXIMIZE_DIFFERENCE:
-                    def find_min_diff(mv: gp._matrixapi.MVar) -> float:
-                        mv_sorted = np.sort(mv)
-                        diffs = list(map(lambda i: mv_sorted[i+1]-mv_sorted[i], range(dlen-1)))
-                        return np.min(diffs)
+                    wdiffs = self.m.addMVar(shape=(dlen*(dlen-1)//2,), lb=0)
+                    wabsdiffs = self.m.addMVar(shape=(dlen*(dlen-1)//2,), lb=0)
+                    combos = combinations(range(dlen), 2)
+                    for i, (v1, v2) in zip(range(dlen), combos):
+                         self.m.addConstr(wdiffs[i]==w[v1] - w[v2])
+                         self.m.addGenConstrAbs(wabsdiffs[i],wdiffs[i])
                     
-                    self.m.setObjective(find_min_diff(w), sense=gp.GRB.MAXIMIZE)
+                    wdiffmin = self.m.addVar(lb=0, ub=2)
+                    self.m.addGenConstrMin(wdiffmin, wabsdiffs.tolist())
+
+                    self.m.setObjective(wdiffmin, sense=gp.GRB.MAXIMIZE)
                 case IGO.MAXIMIZE_MINIMUM:
-                    self.m.setObjective(np.min(wlist), sense=gp.GRB.MAXIMIZE)
+                    self.m.setObjective(wmin, sense=gp.GRB.MAXIMIZE)
                 case _:
                     if verbose:
                         eprint("No objective selected, proceeding by maximizing the minimum weight.")
-                    self.m.setObjective(np.min(wlist), sense=gp.GRB.MAXIMIZE)
+                    self.m.setObjective(wmin, sense=gp.GRB.MAXIMIZE)
+
             self.p = np.sum(wlist[i] * p_ideal[i] for i in range(dlen))
         if maximize_visibility:
             assert not self.lp, "Nonlinear optimization is required for visibility maximization."
@@ -200,14 +211,14 @@ if __name__ == "__main__":
 
     # alices=list_of_Alices(5)
     # val = test_distribution_with_symmetric_fanout(
-    #     p_obs=distribution_for_vis_analysis,
+    #     p_obs=distribution_for_vis_analysi
     #     alices=alices,
     #     verbose=2,
     #     maximize_visibility=True,
     #     visibility_bounds=(0,1))
     # print(f"The optimal visibility is {val}")
 
-    alices=gen_fanout_inflation(5)
-    InfGraph54 = InfGraphOptimizer(alices, d=4, verbose=2, go_nonlinear=False)
-    InfGraph54.test_distribution(prob_all_disagree(4))
+    alices=gen_fanout_inflation(3)
+    InfGraph54 = InfGraphOptimizer(alices, d=2, verbose=2, go_nonlinear=False)
+    InfGraph54.test_distribution(prob_agree(2), prob_all_disagree(2), objective=IGO.MAXIMIZE_DIFFERENCE)
     InfGraph54.close()
