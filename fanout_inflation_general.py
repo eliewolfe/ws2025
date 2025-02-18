@@ -17,7 +17,7 @@ from enum import Enum
 class IGO(Enum):
     MAXIMIZE_DIFFERENCE = 1
     MAXIMIZE_MINIMUM = 2
-    
+
 def marginal_on(p:np.ndarray, indices: tuple) -> np.ndarray:
     set3 = set(range(p.ndim))
     assert set3.issuperset(indices), "indices must be in the range 0-2"
@@ -83,7 +83,7 @@ class InfGraphOptimizer(InfGraph):
         for i in range(dlen):
             assert p_ideal[i].ndim == 3, f"{i}th dist: p_obs must be a tripartite probability distibution"
             assert np.array_equiv(p_ideal[i].shape, self.d), f"{i}th dist: All parties must have cardinality {self.d}"
-        
+
         self.p = p_ideal[0]
         if dlen > 1:
             try:
@@ -91,18 +91,18 @@ class InfGraphOptimizer(InfGraph):
                 min_lb = np.min(lbs)
             except TypeError:
                 min_lb = lbs
-            
+
             try:
                 assert len(ubs) == dlen, "The number of lower bounds should match the number of given probability distributions"
                 min_ub = np.min(ubs)
             except TypeError:
                 min_ub = ubs
-            
+
             # initialize weights (normalized)
             # TODO: print this at the end
             w = self.m.addMVar(shape=(dlen,), lb=lbs, ub=ubs, name="weights")
             self.m.addConstr(w.sum() == 1)
-            
+
             wlist = w.tolist()
             wmin = self.m.addVar(lb=min_lb, ub=min_ub)
             self.m.addGenConstrMin(wmin, wlist)
@@ -114,7 +114,7 @@ class InfGraphOptimizer(InfGraph):
                     for i, (v1, v2) in zip(range(dlen), combos):
                          self.m.addConstr(wdiffs[i]==w[v1] - w[v2])
                          self.m.addGenConstrAbs(wabsdiffs[i],wdiffs[i])
-                    
+
                     wdiffmin = self.m.addVar(lb=0, ub=2)
                     self.m.addGenConstrMin(wdiffmin, wabsdiffs.tolist())
 
@@ -122,7 +122,7 @@ class InfGraphOptimizer(InfGraph):
                 case IGO.MAXIMIZE_MINIMUM:
                     self.m.setObjective(wmin, sense=gp.GRB.MAXIMIZE)
                 case _:
-                    if verbose:
+                    if self.verbose:
                         eprint("No objective selected, proceeding by maximizing the minimum weight.")
                     self.m.setObjective(wmin, sense=gp.GRB.MAXIMIZE)
 
@@ -221,4 +221,11 @@ if __name__ == "__main__":
     alices=gen_fanout_inflation(3)
     InfGraph54 = InfGraphOptimizer(alices, d=2, verbose=2, go_nonlinear=False)
     InfGraph54.test_distribution(prob_agree(2), prob_all_disagree(2), objective=IGO.MAXIMIZE_DIFFERENCE)
+    InfGraph54.close()
+
+    # d=4
+    # alices=gen_fanout_inflation(5)
+    # InfGraph54 = InfGraphOptimizer(alices, d=d, verbose=2, go_nonlinear=False)
+    # InfGraph54.test_distribution(prob_all_disagree(d))
+
     InfGraph54.close()
