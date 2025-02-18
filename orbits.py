@@ -1,10 +1,4 @@
 import numpy as np
-try:
-    import cupy as cp
-    from cupy import asnumpy
-except ImportError:
-    import numpy as cp
-    asnumpy = cp.asarray
 from tqdm import tqdm
 from typing import Tuple
 from utils import eprint
@@ -19,12 +13,12 @@ def identify_orbits(tensor_shape: Tuple, symmetry_group: np.ndarray, verbose=2) 
     The permutation group is given as a list of all permutations, where the first permutation is the identity.
     """
     assert np.array_equal(np.asarray(symmetry_group[0]), np.arange(len(tensor_shape))), "The first permutation must be the identity."
-    all_perms = cp.asarray(symmetry_group[1:])
+    all_perms = np.asarray(symmetry_group[1:])
     n_nontrivial_perms = len(all_perms)
     total_elements = prod(tensor_shape)
-    np_dtype = cp.min_scalar_type(total_elements)
-    paradigm = cp.arange(total_elements, dtype=np_dtype).reshape(tensor_shape)
-    alternatives = cp.empty(shape=(n_nontrivial_perms, total_elements), dtype=np_dtype)
+    np_dtype = np.min_scalar_type(total_elements)
+    paradigm = np.arange(total_elements, dtype=np_dtype).reshape(tensor_shape)
+    alternatives = np.empty(shape=(n_nontrivial_perms, total_elements), dtype=np_dtype)
     if verbose >= 2:
         eprint("Now exploring the consequences of the permutations")
     for i, perm in tqdm(
@@ -32,21 +26,17 @@ def identify_orbits(tensor_shape: Tuple, symmetry_group: np.ndarray, verbose=2) 
         total=n_nontrivial_perms,
         disable=not verbose):
         perm_as_tuple = tuple([int(i) for i in perm])
-        alternatives[i] = cp.transpose(paradigm, axes=perm_as_tuple).reshape(-1)
-    # del paradigm
+        alternatives[i] = np.transpose(paradigm, axes=perm_as_tuple).reshape(-1)
     # collect(generation=2)
-    # Picklist computation assumes that the permutation is a derangement
-    picklist = cp.all(paradigm.reshape(-1) <= alternatives, axis=0)
+    picklist = np.all(paradigm.reshape(-1) <= alternatives, axis=0)
     if verbose >= 2:
         eprint("Picklist identified, now compressing and stacking.")
     alternatives = alternatives[:, picklist]
     nof_orbits = int(np.count_nonzero(picklist))
     orbits = np.empty(shape=(n_nontrivial_perms+1, nof_orbits), dtype=np_dtype)
-    orbits[0] = asnumpy(paradigm.reshape(-1)[picklist])
+    orbits[0] = paradigm.reshape(-1)[picklist]
     for i, alternative in tqdm(enumerate(alternatives), total=n_nontrivial_perms):
-        orbits[i+1] = asnumpy(alternative)
-    # representatives = paradigm.reshape(-1)[picklist,np.newaxis]
-    # nonrepresentatives = alternatives.T[picklist]
+        orbits[i+1] = alternative
     return orbits.T
 
 if __name__ == "__main__":
