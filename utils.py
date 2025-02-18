@@ -4,60 +4,13 @@ import itertools
 from collections import deque
 import numpy as np
 from sys import stderr
-from operator import itemgetter
 ### PUBLIC FUNCTIONS ###
 
 def eprint(*args, **kwargs):
     print(*args, file=stderr, **kwargs)
 
 
-def maximal_injectable_sets(alices: List[Tuple[int, int]]) -> List[Tuple[int,...]]:
-  return _all_and_maximal_cliques(_injection_graph(alices), isolate_maximal=True)[1]
 
-def maximal_injectable_sets_under_symmetry(alices: List[Tuple[int, int]],
-                                           symmetry_group: np.ndarray) -> List[Tuple[int,...]]:
-  return _unique_vecs_under_symmetry(
-    maximal_injectable_sets(alices),
-    symmetry_group)
-
-
-def maximal_factorizing_pairs(alices: List[Tuple[int, int]]) -> List[Tuple[Tuple[int,...], Tuple[int,...]]]:
-  #First let's obtain all pairs of factorizing sets based on sources, then we'll filter for maximality.
-  factorizing_source_pairs = partitions_with_min_size(alices)
-  canonical_dict = {alice: i for i, alice in enumerate(alices)}
-  factorizing_pairs = []
-  for source_partition in factorizing_source_pairs:
-    source_set1 = set(source_partition[0])
-    source_set2 = set(source_partition[1])
-    first_alices_idxs = sorted(canonical_dict[alice] for alice in alices if source_set1.issuperset(alice))
-    second_alices_idxs = sorted(canonical_dict[alice] for alice in alices if source_set2.issuperset(alice))
-    factorizing_pairs.append((tuple(first_alices_idxs), tuple(second_alices_idxs)))
-  return list(_hypergraph_full_cleanup(factorizing_pairs))
-
-
-def maximal_factorizing_pairs_under_symmetry(alices: List[Tuple[int, int]],
-                                           symmetry_group: np.ndarray) -> List[Tuple[Tuple[int,...], Tuple[int,...]]]:
-  return _unique_factorizations_under_symmetry(
-    maximal_factorizing_pairs(alices),
-    symmetry_group)
-
-
-def discover_symmetries(alices: List[Tuple[int, int]]) -> np.ndarray:
-  canonical_order = {pair: i for i, pair in enumerate(alices)}
-  flat_indices = tuple(itertools.chain.from_iterable(alices))
-  nof_flat_indices = len(flat_indices)
-  all_copy_indices = sorted(set(itertools.chain.from_iterable(alices)))
-  assert np.array_equal(all_copy_indices, np.arange(len(all_copy_indices))), "Copy indices must be contiguous."
-  discovered_symmetries = []
-  for perm_candidate in itertools.permutations(all_copy_indices):
-    permuted_flat_indices = itemgetter(*flat_indices)(perm_candidate)
-    relabelled_alices = [permuted_flat_indices[i:i+2] for i in range(0, nof_flat_indices, 2)]
-    try:
-      discovered_symmetries.append([canonical_order[pair] for pair in relabelled_alices])
-    except KeyError:
-      continue
-  assert len(discovered_symmetries) >= 1, "At least the identity permutation should be found."
-  return np.array(discovered_symmetries, dtype=int)
 
 
 ### PRIVATE FUNCTIONS ###
