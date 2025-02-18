@@ -3,7 +3,12 @@ import numpy as np
 import gurobipy as gp
 from tqdm import tqdm
 from utils import eprint
-from gphelpers import create_arbitrary_symmetric_mVar, impose_factorization, gp_project_on, status_dict
+from gphelpers import (create_arbitrary_symmetric_mVar,
+                       impose_factorization,
+                       gp_project_on,
+                       status_dict,
+                       marginal_on,
+                       impose_semi_factorization)
 from infgraphs import InfGraph, Alices
 from distlib import prob_noise
 from enum import Enum
@@ -32,6 +37,10 @@ class InfGraphOptimizer(InfGraph):
         self.lp = not go_nonlinear
         self.env = gp.Env(empty=False, params={'OutputFlag': bool(verbose)})
         self.m = gp.Model(env=self.env)
+        if self.lp:
+            self.m.Params.NonConvex = 0
+        else:
+            self.m.Params.NonConvex = -1
 
         #Initiate dummy distribution and no-optimization status
         self.p = prob_noise(self.d)
@@ -48,17 +57,18 @@ class InfGraphOptimizer(InfGraph):
         # IMPOSE FACTORIZATION
         if verbose:
             eprint("Discovering quadratic factorization relations...")
-        factorizations = self.maximal_factorizing_pairs_under_symmetry
-        if verbose:
-            eprint("Imposing quadratic factorization constraints...")
-        for (indices1, indices2) in factorizations:
-            interpretation = [tuple(alices[i] for i in indices1), tuple(alices[i] for i in indices2)]
-            try:
-                impose_factorization(self.m, self.Q_infl, indices1, indices2)
-                if verbose>=2:
-                    eprint(f"Factorization {[indices1, indices2]} corresponding to {interpretation}")
-            except AssertionError:
-                eprint(f"!! Failed to impose factorization {[indices1, indices2]} corresponding to {interpretation}")
+        factorizations = self.maximal_non_semiexpressible_pairs_under_symmetry
+        if not self.lp:
+            if verbose:
+                eprint("Imposing quadratic factorization constraints...")
+            for (indices1, indices2) in factorizations:
+                interpretation = [tuple(alices[i] for i in indices1), tuple(alices[i] for i in indices2)]
+                try:
+                    impose_factorization(self.m, self.Q_infl, indices1, indices2)
+                    if verbose>=2:
+                        eprint(f"Factorization {[indices1, indices2]} corresponding to {interpretation}")
+                except AssertionError:
+                    eprint(f"!! Failed to impose factorization {[indices1, indices2]} corresponding to {interpretation}")
 
 
     def test_distribution(self, *p_ideal: np.ndarray,
@@ -107,16 +117,18 @@ class InfGraphOptimizer(InfGraph):
                     self.m.setObjective(np.min(wlist), sense=gp.GRB.MAXIMIZE)
             self.p = np.sum(wlist[i] * p_ideal[i] for i in range(dlen))
         if maximize_visibility:
+            assert not self.lp, "Nonlinear optimization is required for visibility maximization."
             v = self.m.addVar(lb=visibility_bounds[0], ub=visibility_bounds[1], name="v")
-            noise = np.ones_like(self.p)/self.d**3
+            noise = np.ones_like(p_ideal[0])/self.d**3
             self.m.setObjective(v, sense=gp.GRB.MAXIMIZE)
-            self.p = self.p * v + noise * (1-v)
+            self.p = p_ideal[0] * v + noise * (1-v)
+
+
 
         # IMPOSE injectable sets
         if self.verbose:
             eprint("Imposing injectable set marginal equalities...")
-        # TODO: use symmetries to reduce constraints
-        maximal = self.maximal_injectable_sets_under_symmetry
+        maximal = self.maximal_injectable_but_not_semi_expressible_under_symmetry
         for clique in tqdm(maximal, disable=not self.verbose):
             interpretation = tuple(alices[i] for i in clique)
             try:
@@ -130,6 +142,21 @@ class InfGraphOptimizer(InfGraph):
                 self.m.addConstr(m_injectable == p_marg)
             except AssertionError:
                 eprint(f"!! Failed to impose injectable set {clique} corresponding to {interpretation}")
+
+        #IMPOSE semi-expressible sets
+        if self.verbose:
+            eprint("Imposing semi-expressible set factorization equalities...")
+        semiexpressible_sets = self.maximal_semiexpressible_sets_under_symmetry
+        for (indices1, indices2) in semiexpressible_sets:
+            interpretation = [tuple(alices[i] for i in indices1), tuple(alices[i] for i in indices2)]
+            is_expressible = (indices2 in self.all_injectable_sets)
+            impose_semi_factorization(self.m, self.Q_infl, self.p, indices1, indices2, expressible=is_expressible)
+            if self.verbose >= 2:
+                if is_expressible:
+                    eprint(f"Expressible set {[indices1, indices2]} corresponding to {interpretation}")
+                else:
+                    eprint(f"Semi-expressible set {[indices1, indices2]} corresponding to {interpretation}")
+
 
         if self.verbose:
             eprint("Initiating optimization of the model...")
@@ -158,141 +185,18 @@ class InfGraphOptimizer(InfGraph):
     def __del__(self):
         self.m.dispose()
         self.env.dispose()
-#
-#
-#
-# def test_distribution_with_symmetric_fanout(
-#     p_obs: np.ndarray,
-#     alices:List[Tuple[int,int]],
-#     verbose=2,
-#     maximize_visibility=False,
-#     visibility_bounds=(0,1)) -> Union[str, float]:
-#
-#     p_ideal = np.asarray(p_obs)
-#     assert p_ideal.ndim == 3, "p_obs must be a tripartite probability distibution"
-#     d = p_ideal.shape[0]
-#     assert np.array_equiv(p_ideal.shape, d), "all parties must have the same cardinality"
-#
-#     with gp.Env(empty=False, params={'OutputFlag': bool(verbose)}) as env, gp.Model(env=env) as m:
-#         # Preparing for possible optimization problem
-#         v = m.addVar(lb=visibility_bounds[0], ub=visibility_bounds[1], name="v")
-#         noise = np.ones_like(p_ideal)/d**3
-#         assert noise.sum() == 1, "Noise must sum to 1"
-#         if maximize_visibility:
-#             m.setObjective(v, sense=gp.GRB.MAXIMIZE)
-#             p = p_ideal * v + noise * (1-v)
-#         else:
-#             p = p_ideal
-#
-#
-#         # IMPOSE SYMMETRY
-#         dimensional_symmetry = discover_symmetries(alices)
-#         if verbose:
-#             eprint("Symmetry group of order: ", len(dimensional_symmetry))
-#         Q_infl = create_arbitrary_symmetric_mVar(m, d, dimensional_symmetry, verbose=verbose)
-#         Q_infl.__name__ = "Q_infl"
-#
-#
-#         # IMPOSE FACTORIZATION
-#         if verbose:
-#             eprint("Discovering quadratic factorization relations...")
-#         factorizations = maximal_factorizing_pairs_under_symmetry(alices, dimensional_symmetry)
-#         if verbose:
-#             eprint("Imposing quadratic factorization constraints...")
-#         for (indices1, indices2) in factorizations:
-#             interpretation = [tuple(alices[i] for i in indices1), tuple(alices[i] for i in indices2)]
-#             try:
-#                 impose_factorization(m, Q_infl, indices1, indices2)
-#                 if verbose>=2:
-#                     eprint(f"Factorization {[indices1, indices2]} corresponding to {interpretation}")
-#             except AssertionError:
-#                 eprint(f"!! Failed to impose factorization {[indices1, indices2]} corresponding to {interpretation}")
-#
-#
-#         # IMPOSE injectable sets
-#         if verbose:
-#             eprint("Imposing injectable set marginal equalities...")
-#         # TODO: use symmetries to reduce constraints
-#         maximal = maximal_injectable_sets_under_symmetry(alices, dimensional_symmetry)
-#         for clique in tqdm(maximal, disable=not verbose):
-#             interpretation = tuple(alices[i] for i in clique)
-#             try:
-#                 m_injectable = gp_project_on(Q_infl, clique)
-#                 if verbose>=2:
-#                     eprint(f"Imposing injectable set {clique} corresponding to {interpretation}")
-#                 if len(clique) == 3:
-#                     p_marg = p
-#                 else:
-#                     p_marg = marginal_on(p, tuple(range(len(clique))))
-#                 m.addConstr(m_injectable == p_marg)
-#
-#             except AssertionError:
-#                 eprint(f"!! Failed to impose injectable set {clique} corresponding to {interpretation}")
-#
-#
-#         if verbose:
-#             eprint("Initiating optimization of the model...")
-#         m.optimize()
-#
-#         # Print model status
-#         status_message = status_dict.get(m.status, f"Unknown status ({m.status})")
-#         print(f"Model status: {m.status} - {status_message}")
-#
-#         if maximize_visibility:
-#             try:
-#                 obj = m.getObjective()
-#                 return obj.getValue()
-#             except AttributeError:
-#                 print("No objective found!")
-#                 return m.status
-#         else:
-#             return m.status
-#
-#         # if m.status == GRB.OPTIMAL:
-#         #     print("\nOptimal solution:")
-#         #     sol = np.asarray(Q_infl.x)
-#         #     for i in orbits[:,0]:
-#         #         val = sol.flat[i]
-#         #         if val > 1e-6:
-#         #             print(f"Q_infl[{tuple(np.unravel_index(i, inflation_shape))}]: {val}")
-#         #     #for v in m.getVars():
-#         #         #if v.x > 0:
-#         #         #    print(f"{v.varName}: {v.x}")
-#         #     print(f"Objective value: {m.objVal}")
-#         # elif m.status == gp.GRB.INFEASIBLE:
-#         #     """
-#         #         Addition to obtain more information about the infeasibility
-#         #     """
-#         #     print("\nThe model is infeasible. Computing IIS...")
-#         #     m.computeIIS()
-#
-#         #     print("\n--- IIS Report ---")
-#
-#         #     # Print constraints that are part of the IIS
-#         #     print("Conflicting constraints:")
-#         #     for constr in m.getConstrs():
-#         #         if constr.IISConstr:  # True if this constraint is in the IIS
-#         #             print(f"  - {constr.ConstrName}")
-#
-#         #     # Print variables that are part of the IIS
-#         #     print("\nConflicting variables:")
-#         #     for var in m.getVars():
-#         #         if var.IISLB or var.IISUB:  # True if this variable is in the IIS
-#         #             print(f"  - {var.varName} (Lower Bound: {var.IISLB}, Upper Bound: {var.IISUB})")
-#
-#
 
 if __name__ == "__main__":
     from distlib import prob_agree, prob_all_disagree
     distribution_for_vis_analysis = prob_agree(2)
     from infgraphs import gen_fanout_inflation
 
-    alices=gen_fanout_inflation(5)
-    InfGraph52 = InfGraphOptimizer(alices, d=2, verbose=2)
-    optimal_vsi = InfGraph52.test_distribution(prob_agree(2),
-                                 maximize_visibility=True)
-    print(f"The optimal visibility is {optimal_vsi}")
-    InfGraph52.close()
+    # alices=gen_fanout_inflation(5)
+    # InfGraph52 = InfGraphOptimizer(alices, d=2, verbose=2, go_nonlinear=False)
+    # optimal_vsi = InfGraph52.test_distribution(prob_agree(2),
+    #                              maximize_visibility=True)
+    # print(f"The optimal visibility is {optimal_vsi}")
+    # InfGraph52.close()
 
     # alices=list_of_Alices(5)
     # val = test_distribution_with_symmetric_fanout(
@@ -303,6 +207,7 @@ if __name__ == "__main__":
     #     visibility_bounds=(0,1))
     # print(f"The optimal visibility is {val}")
 
-    # alices=list_of_Alices(5)
-    # InfGraph54 = InfGraphOptimizer(alices, d=4, verbose=2)
-    # InfGraph54.test_distribution(prob_all_disagree(4))
+    alices=gen_fanout_inflation(5)
+    InfGraph54 = InfGraphOptimizer(alices, d=4, verbose=2, go_nonlinear=False)
+    InfGraph54.test_distribution(prob_all_disagree(4))
+    InfGraph54.close()
