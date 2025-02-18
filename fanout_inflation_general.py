@@ -68,27 +68,27 @@ class InfGraphOptimizer(InfGraph):
                           probe_support=False,
                           maximize_visibility=False,
                           visibility_bounds=(0,1)) -> Union[str, float]:
+        dlen = len(p_ideal)
         for i in range(dlen):
             assert p_ideal[i].ndim == 3, f"{i}th dist: p_obs must be a tripartite probability distibution"
             assert np.array_equiv(p_ideal[i].shape, self.d), f"{i}th dist: All parties must have cardinality {self.d}"
         
         self.p = p_ideal[0]
-        dlen = dlen
         if dlen > 1:
             try:
                 assert len(lbs) == dlen, "The number of lower bounds should match the number of given probability distributions"
             except TypeError:
-                continue 
+                pass 
             
             try:
                 assert len(ubs) == dlen, "The number of lower bounds should match the number of given probability distributions"
             except TypeError:
-                continue 
+                pass 
             
             # initialize weights (normalized)
             # TODO: print this at the end
             w = self.m.addMVar(shape=(dlen,), lb=lbs, ub=ubs, name="weights")
-            m.addConstr(w.sum() == 1)
+            self.m.addConstr(w.sum() == 1)
             
             wlist = w.tolist()
             match objective:
@@ -101,7 +101,10 @@ class InfGraphOptimizer(InfGraph):
                     self.m.setObjective(find_min_diff(w), sense=gp.GRB.MAXIMIZE)
                 case IGO.MAXIMIZE_MINIMUM:
                     self.m.setObjective(np.min(wlist), sense=gp.GRB.MAXIMIZE)
-
+                case _:
+                    if verbose:
+                        eprint("No objective selected, proceeding by maximizing the minimum weight.")
+                    self.m.setObjective(np.min(wlist), sense=gp.GRB.MAXIMIZE)
             self.p = np.sum(wlist[i] * p_ideal[i] for i in range(dlen))
         if maximize_visibility:
             v = self.m.addVar(lb=visibility_bounds[0], ub=visibility_bounds[1], name="v")
