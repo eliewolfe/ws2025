@@ -1,0 +1,3 @@
+[submodule "inflation"]
+	path = inflation
+	url = https://github.com/ecboghiu/inflation
