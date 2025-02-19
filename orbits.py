@@ -18,30 +18,36 @@ def identify_orbits(tensor_shape: Tuple, symmetry_group: np.ndarray, verbose=2) 
     total_elements = prod(tensor_shape)
     np_dtype = np.min_scalar_type(total_elements)
     paradigm = np.arange(total_elements, dtype=np_dtype).reshape(tensor_shape)
-    alternatives = np.empty(shape=(n_nontrivial_perms, total_elements), dtype=np_dtype)
-    if verbose >= 2:
-        eprint("Now exploring the consequences of the permutations")
-    for i, perm in tqdm(
-        enumerate(all_perms), 
-        total=n_nontrivial_perms,
-        disable=not verbose):
-        perm_as_tuple = tuple([int(i) for i in perm])
-        alternatives[i] = np.transpose(paradigm, axes=perm_as_tuple).reshape(-1)
-    # collect(generation=2)
-    picklist = np.all(paradigm.reshape(-1) <= alternatives, axis=0)
-    if verbose >= 2:
-        eprint("Picklist identified, now compressing and stacking.")
-    alternatives = alternatives[:, picklist]
-    nof_orbits = int(np.count_nonzero(picklist))
-    orbits = np.empty(shape=(n_nontrivial_perms+1, nof_orbits), dtype=np_dtype)
-    orbits[0] = paradigm.reshape(-1)[picklist]
-    for i, alternative in tqdm(enumerate(alternatives), total=n_nontrivial_perms):
-        orbits[i+1] = alternative
-    return orbits.T
+    if n_nontrivial_perms:
+        alternatives = np.empty(shape=(n_nontrivial_perms, total_elements), dtype=np_dtype)
+        if verbose >= 2:
+            eprint("Now exploring the consequences of the permutations")
+        for i, perm in tqdm(
+            enumerate(all_perms),
+            total=n_nontrivial_perms,
+            disable=not verbose):
+            perm_as_tuple = tuple([int(i) for i in perm])
+            alternatives[i] = np.transpose(paradigm, axes=perm_as_tuple).reshape(-1)
+        # collect(generation=2)
+        picklist = np.all(paradigm.reshape(-1) <= alternatives, axis=0)
+        if verbose >= 2:
+            eprint("Picklist identified, now compressing and stacking.")
+        alternatives = alternatives[:, picklist]
+        nof_orbits = int(np.count_nonzero(picklist))
+        orbits = np.empty(shape=(n_nontrivial_perms+1, nof_orbits), dtype=np_dtype)
+        orbits[0] = paradigm.reshape(-1)[picklist]
+        for i, alternative in tqdm(enumerate(alternatives), total=n_nontrivial_perms):
+            orbits[i+1] = alternative
+        return orbits.T
+    else:
+        return paradigm.reshape((total_elements, 1))
 
 if __name__ == "__main__":
     # Example usage
     tensor_shape = (3, 3, 3)
     C3 = np.array([np.roll(np.arange(3), i) for i in range(3)], dtype=int)
-    orbits = identify_orbits(tensor_shape, C3)
-    print(orbits)
+    print("Cyclic symmetry demo:")
+    print(identify_orbits(tensor_shape, C3))
+
+    print("No symmetry demo:")
+    print(identify_orbits(tensor_shape, np.arange(3)[np.newaxis], verbose=2))
