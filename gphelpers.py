@@ -44,7 +44,7 @@ def create_arbitrary_symmetric_mVar(m: gp._model.Model,
         this_MVar = gp.MVar.fromlist(this_MVar_as_ndarray.reshape(mvar_shape))
     return this_MVar
 
-def _cyclic_symmetry_group(n: int) -> np.ndarray:
+def cyclic_symmetry_group(n: int) -> np.ndarray:
     return np.array([np.roll(np.arange(n), i) for i in range(n)], dtype=int)
 
 def create_cyclic_symmetric_mVar(m: gp._model.Model,
@@ -61,7 +61,7 @@ def create_cyclic_symmetric_mVar(m: gp._model.Model,
     """
     return create_arbitrary_symmetric_mVar(m,
                                            d,
-                                           _cyclic_symmetry_group(n),
+                                           cyclic_symmetry_group(n),
                                            verbose=verbose)
 
 
@@ -188,4 +188,4 @@ status_dict = {
 }
 
 if __name__ == "__main__":
-    print(_cyclic_symmetry_group(5))
+    print(cyclic_symmetry_group(5))
