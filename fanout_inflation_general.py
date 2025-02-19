@@ -18,15 +18,6 @@ class IGO(Enum):
     MAXIMIZE_DIFFERENCE = 1
     MAXIMIZE_MINIMUM = 2
 
-def marginal_on(p:np.ndarray, indices: tuple) -> np.ndarray:
-    set3 = set(range(p.ndim))
-    assert set3.issuperset(indices), "indices must be in the range 0-2"
-    to_sum_over = set3.difference(indices)
-    temp_arr = np.asarray(p).sum(axis=tuple(to_sum_over))
-    order = tuple(np.argsort(indices))
-    # print("Extra re-arranging:", order
-    return temp_arr.transpose(order)
-
 class InfGraphOptimizer(InfGraph):
     def __init__(self, alices: Alices,
                  d: int,
