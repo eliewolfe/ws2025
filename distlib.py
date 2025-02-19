@@ -41,3 +41,12 @@ def prob_all_disagree(n: int) -> np.ndarray:
     for (i,j,k) in itertools.permutations(range(n), 3):
         prob[i, j, k] = 1/disagree_events
     return prob
+
+def prob_disagree_cyclic() -> np.ndarray:
+    prob0 = np.zeros((3,3,3))
+    prob1 = np.zeros((3,3,3))
+    disagree_events = 3
+    for i in range(3):
+        prob0[i, (i+1)%3, (i+2)%3] = 1/disagree_events
+        prob1[i, (i-1)%3, (i-2)%3] = 1/disagree_events
+    return prob0, prob1

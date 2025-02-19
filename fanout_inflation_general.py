@@ -126,7 +126,7 @@ class InfGraphOptimizer(InfGraph):
                         eprint("No objective selected, proceeding by maximizing the minimum weight.")
                     self.m.setObjective(wmin, sense=gp.GRB.MAXIMIZE)
 
-            self.p = np.sum(wlist[i] * p_ideal[i] for i in range(dlen))
+            self.p = sum(wlist[i] * p_ideal[i] for i in range(dlen))
         if maximize_visibility:
             assert not self.lp, "Nonlinear optimization is required for visibility maximization."
             v = self.m.addVar(lb=visibility_bounds[0], ub=visibility_bounds[1], name="v")
@@ -178,7 +178,7 @@ class InfGraphOptimizer(InfGraph):
         self.status_message = status_dict.get(self.status, f"Unknown status ({self.status})")
         print(f"Model status: {self.status} - {self.status_message}")
 
-        if maximize_visibility:
+        if maximize_visibility or dlen > 1:
             try:
                 obj = self.m.getObjective()
                 if dlen > 1:
@@ -198,7 +198,7 @@ class InfGraphOptimizer(InfGraph):
         self.env.dispose()
 
 if __name__ == "__main__":
-    from distlib import prob_agree, prob_all_disagree
+    from distlib import prob_agree, prob_all_disagree, prob_disagree_cyclic
     distribution_for_vis_analysis = prob_agree(2)
     from infgraphs import gen_fanout_inflation
 
@@ -218,9 +218,9 @@ if __name__ == "__main__":
     #     visibility_bounds=(0,1))
     # print(f"The optimal visibility is {val}")
 
-    alices=gen_fanout_inflation(3)
-    InfGraph54 = InfGraphOptimizer(alices, d=2, verbose=2, go_nonlinear=False)
-    InfGraph54.test_distribution(prob_agree(2), prob_all_disagree(2), objective=IGO.MAXIMIZE_DIFFERENCE)
+    alices=gen_fanout_inflation(4)
+    InfGraph54 = InfGraphOptimizer(alices, d=3, verbose=0, go_nonlinear=False)
+    print(InfGraph54.test_distribution(*prob_disagree_cyclic(), objective=IGO.MAXIMIZE_DIFFERENCE))
     InfGraph54.close()
 
     # d=4
